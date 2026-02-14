@@ -30,4 +30,22 @@ async function getBalance(address) {
   }
 }
 
-module.exports = { getBalance };
+/**
+ * Получает баланс fungible токена HOT (game.hot.tg) для адреса.
+ * @param {string} address - NEAR-адрес
+ * @param {string} [tokenId='game.hot.tg'] - контракт токена
+ * @returns {Promise<number>} - баланс в человекочитаемом формате
+ */
+async function getTokenBalance(address, tokenId = 'game.hot.tg') {
+  try {
+    const url = `${NEARBLOCKS_API_URL}/account/${address}/inventory`;
+    const response = await axios.get(url, { timeout: API_TIMEOUT });
+    const token = response.data.inventory.fts.find((t) => t.contract === tokenId);
+    return token ? parseFloat(token.amount) / 1e6 : 0;
+  } catch (error) {
+    console.error('getTokenBalance error:', error.message);
+    throw new Error('Ошибка получения HOT баланса');
+  }
+}
+
+module.exports = { getBalance, getTokenBalance };
