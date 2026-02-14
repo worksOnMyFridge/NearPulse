@@ -1,6 +1,7 @@
 require('dotenv/config');
 
 const { Telegraf } = require('telegraf');
+const { getBalance } = require('./services/nearService');
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 
@@ -19,8 +20,23 @@ bot.start((ctx) => {
 
 bot.help((ctx) => {
   ctx.reply(
-    '📋 Доступные команды:\n/start - Начать работу\n/help - Эта справка'
+    '📋 Доступные команды:\n/start - Начать работу\n/help - Эта справка\n/balance <адрес> - Баланс кошелька'
   );
+});
+
+bot.command('balance', async (ctx) => {
+  const address = ctx.message.text.split(' ')[1];
+  if (!address) {
+    await ctx.reply('Укажите адрес: /balance vlad.near');
+    return;
+  }
+  try {
+    await ctx.reply('⏳ Загружаю данные...');
+    const balance = await getBalance(address);
+    await ctx.reply(`💰 Баланс ${address}\n\n${balance.near} NEAR`);
+  } catch (error) {
+    await ctx.reply('❌ Адрес не найден');
+  }
 });
 
 async function main() {
