@@ -1,0 +1,18 @@
+This is a NEAR Protocol Telegram bot project.
+
+Key technologies:
+- Node.js + Telegraf
+- NEAR Protocol (Nearblocks API)
+- OpenAI API for insights
+
+Always:
+- Use async/await
+- Add error handling
+- Validate inputs
+- Follow security best practices
+- Test with testnet addresses first
+
+Never:
+- Hardcode API keys
+- Ignore errors
+- Use outdated JS syntax
