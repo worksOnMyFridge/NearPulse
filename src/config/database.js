@@ -1,5 +1,7 @@
 // Простое хранилище в памяти (вместо БД)
 const users = new Map();
+// История балансов: Map<telegramId, Array<{timestamp, nearBalance, hotBalance}>>
+const balanceHistory = new Map();
 
 function getUser(telegramId) {
   return users.get(telegramId) || null;
@@ -46,12 +48,72 @@ function getDb() {
   return {}; // Заглушка
 }
 
-function saveBalanceSnapshot() {
-  // Пока не сохраняем
+/**
+ * Сохраняет снимок баланса пользователя
+ * @param {number} telegramId - ID пользователя в Telegram
+ * @param {string} address - NEAR адрес
+ * @param {number} nearBalance - Баланс NEAR (включая стейкинг)
+ * @param {number} hotBalance - Баланс HOT токенов
+ */
+function saveBalanceSnapshot(telegramId, address, nearBalance, hotBalance) {
+  if (!telegramId || !address) return;
+
+  const history = balanceHistory.get(telegramId) || [];
+  const now = Date.now();
+
+  // Добавляем новый снимок
+  history.push({
+    timestamp: now,
+    address,
+    nearBalance: nearBalance || 0,
+    hotBalance: hotBalance || 0,
+  });
+
+  // Оставляем только последние 30 дней (для экономии памяти)
+  const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
+  const filtered = history.filter(h => h.timestamp > thirtyDaysAgo);
+
+  balanceHistory.set(telegramId, filtered);
+
+  console.log(`💾 Сохранён снимок баланса для ${address}: ${nearBalance.toFixed(2)} NEAR, ${hotBalance.toFixed(2)} HOT`);
 }
 
-function getBalance24hAgo() {
-  return null; // Нет истории
+/**
+ * Получает баланс 24 часа назад
+ * @param {number} telegramId - ID пользователя в Telegram
+ * @returns {Object|null} Баланс 24ч назад или null
+ */
+function getBalance24hAgo(telegramId) {
+  const history = balanceHistory.get(telegramId);
+  if (!history || history.length === 0) {
+    return null;
+  }
+
+  const now = Date.now();
+  const oneDayAgo = now - 24 * 60 * 60 * 1000;
+
+  // Ищем снимок ближайший к 24ч назад
+  let closest = null;
+  let minDiff = Infinity;
+
+  for (const snapshot of history) {
+    const diff = Math.abs(snapshot.timestamp - oneDayAgo);
+    if (diff < minDiff) {
+      minDiff = diff;
+      closest = snapshot;
+    }
+  }
+
+  return closest;
+}
+
+/**
+ * Получает всю историю балансов пользователя
+ * @param {number} telegramId - ID пользователя
+ * @returns {Array} Массив снимков
+ */
+function getBalanceHistory(telegramId) {
+  return balanceHistory.get(telegramId) || [];
 }
 
 module.exports = {
@@ -63,5 +125,6 @@ module.exports = {
   updateLastHotNotify,
   saveBalanceSnapshot,
   getBalance24hAgo,
+  getBalanceHistory,
   NOTIFY_COOLDOWN_SEC,
 };

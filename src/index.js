@@ -12,7 +12,7 @@ const {
   TOKEN_DECIMALS_MAP,
 } = require('./services/nearService');
 const { generatePulseReport } = require('./services/aiService');
-const { getDb, updateUserAddress, setHotNotify, getUser, getUsersForMonitoring, updateLastHotNotify, NOTIFY_COOLDOWN_SEC, saveBalanceSnapshot, getBalance24hAgo } = require('./config/database');
+const { getDb, updateUserAddress, setHotNotify, getUser, getUsersForMonitoring, updateLastHotNotify, NOTIFY_COOLDOWN_SEC, saveBalanceSnapshot, getBalance24hAgo, getBalanceHistory } = require('./config/database');
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 
@@ -85,9 +85,10 @@ bot.help((ctx) => {
   ctx.reply(
     '📋 **Доступные инструменты:**\n\n' +
     '💰 /balance <адрес> — Баланс, стейкинг и HOT.\n' +
+    '📊 /analytics <адрес> — Аналитика и изменения за 24ч.\n' +
     '📜 /transactions <адрес> — История последних 10 транзакций.\n' +
     '📈 /pulse <адрес> — ИИ-анализ последних транзакций.\n' +
-    '📊 /app <адрес> — Открыть Mini App с аналитикой.\n' +
+    '🌐 /app <адрес> — Открыть Mini App с аналитикой.\n' +
     '⚙️ /settings — Настройки и уведомления.\n' +
     '🔔 /test_notify — Тест уведомления (проверка доставки).'
   );
@@ -194,6 +195,136 @@ bot.command('balance', async (ctx) => {
   } catch (error) {
     console.error('Ошибка в боте:', error.message);
     await ctx.reply('❌ Не удалось найти этот адрес или получить данные. Проверьте правильность написания.');
+  }
+});
+
+bot.command('analytics', async (ctx) => {
+  const address = ctx.message.text.split(' ')[1];
+
+  if (!address) {
+    await ctx.reply('📍 Пожалуйста, укажите адрес. Пример: /analytics vlad.near');
+    return;
+  }
+
+  try {
+    const loadingMsg = await ctx.reply('⏳ Анализирую данные...');
+
+    const [nearData, stakingBalance, hotBalance, nearPrice, categorizedTokens, txns] = await Promise.all([
+      getBalance(address),
+      getStakingBalance(address),
+      getTokenBalance(address),
+      getNearPrice().catch(() => null),
+      getTokensWithPrices(address, 1),
+      getTransactionHistory(address).catch(() => []),
+    ]);
+
+    await ctx.telegram.deleteMessage(ctx.chat.id, loadingMsg.message_id);
+
+    const formatNum = (n) =>
+      n.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    const formatUsd = (nearAmount) => {
+      if (!nearPrice) return '';
+      const usd = nearAmount * nearPrice;
+      return ` (~$${usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`;
+    };
+
+    const totalNear = nearData.near + stakingBalance;
+    const totalUsd = nearPrice ? totalNear * nearPrice : 0;
+
+    // Получаем баланс 24ч назад
+    const telegramId = ctx.from?.id;
+    const balance24h = telegramId ? getBalance24hAgo(telegramId) : null;
+
+    // 📈 Изменение за 24 часа
+    let changeSection = '';
+    if (balance24h) {
+      const nearChange = totalNear - balance24h.nearBalance;
+      const hotChange = hotBalance - balance24h.hotBalance;
+      const percentChange = balance24h.nearBalance > 0 
+        ? ((nearChange / balance24h.nearBalance) * 100)
+        : 0;
+
+      const changeIcon = nearChange >= 0 ? '📈' : '📉';
+      const changeSign = nearChange >= 0 ? '+' : '';
+      const changeColor = nearChange >= 0 ? '🟢' : '🔴';
+
+      changeSection = 
+        '\n📊 **Изменение за 24 часа:**\n' +
+        `${changeIcon} NEAR: ${changeSign}${formatNum(nearChange)} (${changeSign}${percentChange.toFixed(2)}%)${formatUsd(nearChange)}\n`;
+
+      if (Math.abs(hotChange) > 0.01) {
+        const hotChangeIcon = hotChange >= 0 ? '📈' : '📉';
+        changeSection += `${hotChangeIcon} HOT: ${changeSign}${formatNum(hotChange)}\n`;
+      }
+    } else {
+      changeSection = '\n📊 **Изменение за 24 часа:**\n_Данных пока нет. Проверьте позже!_\n';
+    }
+
+    // 💰 Распределение активов
+    const totalTokensUsd = categorizedTokens.major.reduce((sum, t) => sum + t.usdValue, 0) +
+                          categorizedTokens.filtered.reduce((sum, t) => sum + t.usdValue, 0);
+    const totalPortfolio = totalUsd + totalTokensUsd;
+
+    const nearPercent = totalPortfolio > 0 ? (totalUsd / totalPortfolio * 100) : 0;
+    const tokensPercent = totalPortfolio > 0 ? (totalTokensUsd / totalPortfolio * 100) : 0;
+
+    // Визуальный бар (10 символов)
+    const createBar = (percent) => {
+      const filled = Math.round(percent / 10);
+      const empty = 10 - filled;
+      return '█'.repeat(filled) + '░'.repeat(empty);
+    };
+
+    const distributionSection =
+      '\n💼 **Распределение активов:**\n' +
+      `💎 NEAR: ${nearPercent.toFixed(1)}%\n` +
+      `${createBar(nearPercent)} $${formatNum(totalUsd)}\n` +
+      `🪙 Токены: ${tokensPercent.toFixed(1)}%\n` +
+      `${createBar(tokensPercent)} $${formatNum(totalTokensUsd)}\n`;
+
+    // 🔥 Топ 5 токенов
+    const allTokens = [...categorizedTokens.major, ...categorizedTokens.filtered]
+      .sort((a, b) => b.usdValue - a.usdValue)
+      .slice(0, 5);
+
+    let topTokensSection = '';
+    if (allTokens.length > 0) {
+      topTokensSection = '\n🏆 **Топ токенов:**\n';
+      allTokens.forEach((token, idx) => {
+        const percent = totalPortfolio > 0 ? (token.usdValue / totalPortfolio * 100) : 0;
+        topTokensSection += `${idx + 1}. ${token.symbol}: $${formatNum(token.usdValue)} (${percent.toFixed(1)}%)\n`;
+      });
+    }
+
+    // 📊 Активность
+    const last24h = txns.filter(tx => {
+      const txTime = parseInt(tx.block_timestamp) / 1000000; // nanoseconds to ms
+      const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+      return txTime > dayAgo;
+    });
+
+    const activitySection = 
+      '\n📈 **Активность (24ч):**\n' +
+      `Транзакций: ${last24h.length}\n`;
+
+    const message =
+      `${APPLE_STYLE_HEADER}\n` +
+      `📊 **Аналитика**\n` +
+      `👤 **Аккаунт:** \`${address}\`\n` +
+      '━━━━━━━━━━━━━━━━━━\n' +
+      `💰 **Общий портфель:** $${formatNum(totalPortfolio)}\n` +
+      changeSection +
+      distributionSection +
+      topTokensSection +
+      activitySection +
+      '\n━━━━━━━━━━━━━━━━━━';
+
+    await ctx.replyWithMarkdown(message);
+
+  } catch (error) {
+    console.error('Ошибка в /analytics:', error.message);
+    await ctx.reply('❌ Не удалось получить аналитику. Попробуйте позже.');
   }
 });
 
