@@ -468,16 +468,30 @@ async function getHotClaimStatus(address) {
 
     const nextClaimAt = lastClaimMs + maxStorageMs;
     const now = Date.now();
-
-    if (now >= nextClaimAt) {
-      return { readyToClaim: true, hoursUntilClaim: 0, minutesUntilClaim: 0 };
-    }
+    const canClaim = now >= nextClaimAt;
 
     const diffMs = nextClaimAt - now;
     const hoursUntilClaim = Math.floor(diffMs / (60 * 60 * 1000));
     const minutesUntilClaim = Math.floor((diffMs % (60 * 60 * 1000)) / (60 * 1000));
 
-    return { readyToClaim: false, hoursUntilClaim, minutesUntilClaim };
+    // Форматируем время до клейма
+    let timeUntilClaim = '';
+    if (canClaim) {
+      timeUntilClaim = 'Можно клеймить!';
+    } else if (hoursUntilClaim > 0) {
+      timeUntilClaim = `${hoursUntilClaim} ч ${minutesUntilClaim} мин`;
+    } else {
+      timeUntilClaim = `${minutesUntilClaim} мин`;
+    }
+
+    return {
+      canClaim,
+      nextClaimTime: nextClaimAt,
+      lastClaimTime: lastClaimMs,
+      timeUntilClaim,
+      hoursUntilClaim,
+      minutesUntilClaim,
+    };
   } catch (error) {
     console.error('getHotClaimStatus error:', error.message);
     return null;

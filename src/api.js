@@ -210,7 +210,13 @@ app.get(['/api/transactions/:address', '/transactions/:address'], async (req, re
         type = isOutgoing ? 'transfer_out' : 'transfer_in';
         icon = isOutgoing ? '📤' : '📥';
         const otherParty = isOutgoing ? firstTx.receiver_account_id : firstTx.predecessor_account_id;
-        description = isOutgoing ? `Отправлено → ${otherParty}` : `Получено ← ${otherParty}`;
+        
+        // Укорачиваем длинные адреса
+        const shortParty = otherParty.length > 20 
+          ? otherParty.substring(0, 8) + '...' + otherParty.substring(otherParty.length - 6)
+          : otherParty;
+        
+        description = isOutgoing ? `Отправлено → ${shortParty}` : `Получено ← ${shortParty}`;
       } else if (hasTokenTransfer) {
         const tokenContract = contracts.find(c => 
           c.includes('.tkn.') || c.includes('token.') || c.includes('meme-cooking')
@@ -231,10 +237,14 @@ app.get(['/api/transactions/:address', '/transactions/:address'], async (req, re
 
         const isOutgoing = firstTx.predecessor_account_id === address;
         type = isOutgoing ? 'token_out' : 'token_in';
-        icon = isOutgoing ? '📤' : '📥';
-        description = isOutgoing ? `Отправлено ${tokenName}` : `Получено ${tokenName}`;
+        icon = '🪙';  // Единая иконка для токенов
+        description = isOutgoing ? `Отправлен токен ${tokenName || 'Token'}` : `Получен токен ${tokenName || 'Token'}`;
       }
 
+      // Конвертируем timestamp из наносекунд в миллисекунды
+      const timestampRaw = parseInt(txGroup.timestamp);
+      const timestampMs = timestampRaw > 1e15 ? Math.floor(timestampRaw / 1e6) : timestampRaw;
+      
       return {
         hash: txGroup.hash,
         type,
@@ -243,7 +253,7 @@ app.get(['/api/transactions/:address', '/transactions/:address'], async (req, re
         amount: Math.abs(totalNear),
         amountFormatted: totalNear.toFixed(2),
         usdValue: nearPrice && Math.abs(totalNear) > 0.01 ? Math.abs(totalNear) * nearPrice : null,
-        timestamp: parseInt(txGroup.timestamp),
+        timestamp: timestampMs,
         tokenName,
       };
     }).filter(Boolean);

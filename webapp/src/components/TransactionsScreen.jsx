@@ -65,10 +65,23 @@ export default function TransactionsScreen() {
     );
   }
 
+  // Определяем цвет границы по типу транзакции
+  const getBorderColor = (type) => {
+    if (type === 'hot_claim') return 'border-l-4 border-l-orange-500';
+    if (type === 'claim') return 'border-l-4 border-l-yellow-500';
+    if (type === 'swap') return 'border-l-4 border-l-blue-500';
+    if (type === 'transfer_in' || type === 'token_in') return 'border-l-4 border-l-green-500';
+    if (type === 'transfer_out' || type === 'token_out') return 'border-l-4 border-l-red-500';
+    return 'border-l-4 border-l-gray-300';
+  };
+
   return (
     <div className="space-y-3">
       {transactions.map(tx => (
-        <div key={tx.hash} className="bg-white rounded-xl border border-gray-100 p-4 hover:shadow-md transition">
+        <div 
+          key={tx.hash} 
+          className={`bg-white rounded-xl border border-gray-100 p-4 hover:shadow-md transition ${getBorderColor(tx.type)}`}
+        >
           <div className="flex items-start gap-3">
             {/* Icon */}
             <div className="text-2xl mt-0.5 flex-shrink-0">{tx.icon}</div>
@@ -76,10 +89,31 @@ export default function TransactionsScreen() {
             {/* Main Content */}
             <div className="flex-1 min-w-0">
               {/* Description */}
-              <div className="font-semibold text-sm mb-1 truncate">{tx.description}</div>
+              <div className="font-semibold text-sm mb-1">{tx.description}</div>
+              
+              {/* Token Badge - показываем сверху если есть */}
+              {tx.tokenName && (
+                <div className="mb-2 inline-block px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full font-medium">
+                  {tx.tokenName}
+                </div>
+              )}
+
+              {/* Amount - показываем только если есть NEAR */}
+              {tx.amount > 0.01 && (
+                <div className="flex items-baseline gap-2 mb-2">
+                  <span className="font-bold text-base text-gray-900">
+                    {parseFloat(tx.amountFormatted).toFixed(2)} NEAR
+                  </span>
+                  {tx.usdValue && (
+                    <span className="text-xs text-gray-500">
+                      ≈ ${tx.usdValue.toFixed(2)}
+                    </span>
+                  )}
+                </div>
+              )}
               
               {/* Time and Link */}
-              <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
+              <div className="flex items-center gap-2 text-xs text-gray-500">
                 <div className="flex items-center gap-1">
                   <Clock className="w-3 h-3" />
                   <span>{dayjs(tx.timestamp).fromNow()}</span>
@@ -94,27 +128,6 @@ export default function TransactionsScreen() {
                   Explorer <ExternalLink className="w-3 h-3" />
                 </a>
               </div>
-
-              {/* Amount */}
-              {tx.amount > 0.01 && (
-                <div className="flex items-baseline gap-2">
-                  <span className="font-bold text-base text-gray-900">
-                    {parseFloat(tx.amountFormatted).toFixed(2)} NEAR
-                  </span>
-                  {tx.usdValue && (
-                    <span className="text-xs text-gray-500">
-                      ≈ ${tx.usdValue.toFixed(2)}
-                    </span>
-                  )}
-                </div>
-              )}
-              
-              {/* Token Name for token transfers */}
-              {tx.tokenName && (
-                <div className="mt-1 inline-block px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full font-medium">
-                  {tx.tokenName}
-                </div>
-              )}
             </div>
           </div>
         </div>
