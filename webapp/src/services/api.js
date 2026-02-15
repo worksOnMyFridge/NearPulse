@@ -89,9 +89,54 @@ export async function checkApiHealth() {
   }
 }
 
+/**
+ * Получить аналитику транзакций за период
+ * @param {string} address - NEAR адрес
+ * @param {string} period - Период: 'week', 'month', 'all' (по умолчанию 'week')
+ * @returns {Promise<Object>} Аналитика транзакций
+ */
+export async function fetchAnalytics(address, period = 'week') {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/analytics/${address}?period=${period}`);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error fetching analytics:', error);
+    throw error;
+  }
+}
+
+/**
+ * Получить NFT пользователя (кошелёк + застейканные в HOT)
+ * @param {string} address - NEAR адрес
+ * @returns {Promise<Object>} NFT пользователя
+ */
+export async function fetchNFTs(address) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/nfts/${address}`);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error fetching NFTs:', error);
+    throw error;
+  }
+}
+
 export default {
   fetchUserBalance,
   fetchTransactions,
   fetchHotClaimStatus,
   checkApiHealth,
+  fetchAnalytics,
+  fetchNFTs,
 };

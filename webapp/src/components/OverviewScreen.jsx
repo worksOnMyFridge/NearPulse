@@ -1,13 +1,16 @@
 import { useState, useEffect } from 'react';
-import { Activity, Zap, Sparkles, TrendingUp, BarChart3, PieChart, Wallet, Clock, Info } from 'lucide-react';
-import { analytics } from '../lib/mockData';
-import { fetchHotClaimStatus } from '../services/api';
+import { Activity, Zap, Sparkles, TrendingUp, BarChart3, PieChart, Wallet, Clock, Info, Image } from 'lucide-react';
+import { fetchHotClaimStatus, fetchAnalytics, fetchNFTs } from '../services/api';
 import { useTelegram } from '../hooks/useTelegram';
 
 export default function OverviewScreen({ selectedPeriod, onPeriodChange, balanceData }) {
   const { address } = useTelegram();
   const [claimStatus, setClaimStatus] = useState(null);
   const [timeRemaining, setTimeRemaining] = useState('');
+  const [data, setData] = useState(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [nfts, setNfts] = useState(null);
+  const [nftsLoading, setNftsLoading] = useState(true);
   
   const displayAddress = address || 'leninjiv23.tg';
 
@@ -26,6 +29,43 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
     // Обновляем каждые 30 секунд
     const interval = setInterval(loadClaimStatus, 30000);
     return () => clearInterval(interval);
+  }, [displayAddress]);
+
+  // Загружаем аналитику
+  useEffect(() => {
+    async function loadAnalytics() {
+      try {
+        setAnalyticsLoading(true);
+        const analytics = await fetchAnalytics(displayAddress, selectedPeriod);
+        setData(analytics);
+      } catch (err) {
+        console.error('Error loading analytics:', err);
+        // Используем пустую аналитику при ошибке
+        setData(null);
+      } finally {
+        setAnalyticsLoading(false);
+      }
+    }
+
+    loadAnalytics();
+  }, [displayAddress, selectedPeriod]);
+
+  // Загружаем NFT
+  useEffect(() => {
+    async function loadNFTs() {
+      try {
+        setNftsLoading(true);
+        const nftData = await fetchNFTs(displayAddress);
+        setNfts(nftData);
+      } catch (err) {
+        console.error('Error loading NFTs:', err);
+        setNfts(null);
+      } finally {
+        setNftsLoading(false);
+      }
+    }
+
+    loadNFTs();
   }, [displayAddress]);
 
   // Обновляем таймер каждую секунду
@@ -60,12 +100,15 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
     const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
   }, [claimStatus]);
-  const data = analytics[selectedPeriod] || analytics.week;
-  const maxActivity = Math.max(...data.activityByDay.map(d => d.txs));
+  
+  // Если аналитика ещё загружается или отсутствует, используем значения по умолчанию
+  const maxActivity = data?.activityByDay ? Math.max(...data.activityByDay.map(d => d.txs), 1) : 1;
 
   // Генерируем insights с реальными данными
   const generateInsights = () => {
-    const insights = [...data.insights];
+    if (!data) return [];
+    
+    const insights = [...(data.insights || [])];
     
     // Заменяем insight с MOON токенами на реальный HOT баланс
     if (balanceData && balanceData.hot) {
@@ -216,117 +259,204 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
       </div>
 
       {/* Main Stats */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-4 text-white shadow-lg shadow-blue-500/20 hover:scale-[1.02] transition-transform">
-          <div className="flex items-center gap-2 mb-2">
-            <Activity className="w-4 h-4 opacity-80" />
-            <div className="text-xs opacity-80">Транзакций</div>
+      {!analyticsLoading && data && (
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-4 text-white shadow-lg shadow-blue-500/20 hover:scale-[1.02] transition-transform">
+            <div className="flex items-center gap-2 mb-2">
+              <Activity className="w-4 h-4 opacity-80" />
+              <div className="text-xs opacity-80">Транзакций</div>
+            </div>
+            <div className="text-3xl font-bold">{data.totalTxs}</div>
+            <div className="text-xs opacity-80 mt-1">за период</div>
           </div>
-          <div className="text-3xl font-bold">{data.totalTxs}</div>
-          <div className="text-xs opacity-80 mt-1">за период</div>
-        </div>
 
-        <div className="bg-gradient-to-br from-orange-500 to-red-500 rounded-xl p-4 text-white shadow-lg shadow-orange-500/20 hover:scale-[1.02] transition-transform">
-          <div className="flex items-center gap-2 mb-2">
-            <Zap className="w-4 h-4 opacity-80" />
-            <div className="text-xs opacity-80">Gas расходы</div>
+          <div className="bg-gradient-to-br from-orange-500 to-red-500 rounded-xl p-4 text-white shadow-lg shadow-orange-500/20 hover:scale-[1.02] transition-transform">
+            <div className="flex items-center gap-2 mb-2">
+              <Zap className="w-4 h-4 opacity-80" />
+              <div className="text-xs opacity-80">Gas расходы</div>
+            </div>
+            <div className="text-3xl font-bold">{data.gasSpent.toFixed(3)}</div>
+            <div className="text-xs opacity-80 mt-1">NEAR (${data.gasUSD})</div>
           </div>
-          <div className="text-3xl font-bold">{data.gasSpent.toFixed(3)}</div>
-          <div className="text-xs opacity-80 mt-1">NEAR (${data.gasUSD})</div>
-        </div>
 
-        <div className="bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl p-4 text-white shadow-lg shadow-purple-500/20 hover:scale-[1.02] transition-transform">
-          <div className="flex items-center gap-2 mb-2">
-            <Sparkles className="w-4 h-4 opacity-80" />
-            <div className="text-xs opacity-80">Контрактов</div>
+          <div className="bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl p-4 text-white shadow-lg shadow-purple-500/20 hover:scale-[1.02] transition-transform">
+            <div className="flex items-center gap-2 mb-2">
+              <Sparkles className="w-4 h-4 opacity-80" />
+              <div className="text-xs opacity-80">Контрактов</div>
+            </div>
+            <div className="text-3xl font-bold">{data.uniqueContracts}</div>
+            <div className="text-xs opacity-80 mt-1">уникальных</div>
           </div>
-          <div className="text-3xl font-bold">{data.uniqueContracts}</div>
-          <div className="text-xs opacity-80 mt-1">уникальных</div>
-        </div>
 
-        <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl p-4 text-white shadow-lg shadow-green-500/20 hover:scale-[1.02] transition-transform">
-          <div className="flex items-center gap-2 mb-2">
-            <TrendingUp className="w-4 h-4 opacity-80" />
-            <div className="text-xs opacity-80">Самый активный</div>
+          <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl p-4 text-white shadow-lg shadow-green-500/20 hover:scale-[1.02] transition-transform">
+            <div className="flex items-center gap-2 mb-2">
+              <TrendingUp className="w-4 h-4 opacity-80" />
+              <div className="text-xs opacity-80">Самый активный</div>
+            </div>
+            <div className="text-lg font-bold mt-2">{data.mostActive}</div>
+            <div className="text-xs opacity-80">протокол</div>
           </div>
-          <div className="text-lg font-bold mt-2">{data.mostActive}</div>
-          <div className="text-xs opacity-80">протокол</div>
         </div>
-      </div>
+      )}
 
       {/* Activity Chart */}
-      <div className="glass-card rounded-xl p-4">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-primary">Активность по дням</h3>
-          <BarChart3 className="w-5 h-5 text-secondary" />
-        </div>
-
-        <div className="flex items-end justify-between gap-2 h-32">
-          {data.activityByDay.map((day, idx) => (
-            <div key={idx} className="flex-1 flex flex-col items-center gap-2">
-              <div className="w-full bg-glass rounded-t-lg relative" style={{ height: '100%' }}>
-                <div
-                  className="absolute bottom-0 w-full bg-gradient-to-t from-blue-500 to-blue-400 rounded-t-lg transition-all hover:from-blue-400 hover:to-blue-300"
-                  style={{ height: `${(day.txs / maxActivity) * 100}%` }}
-                />
-              </div>
-              <div className="text-xs text-secondary font-medium">{day.day}</div>
-              <div className="text-xs font-bold text-primary">{day.txs}</div>
+      {!analyticsLoading && data && (
+        <>
+          <div className="glass-card rounded-xl p-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold text-primary">Активность по дням</h3>
+              <BarChart3 className="w-5 h-5 text-secondary" />
             </div>
-          ))}
-        </div>
-      </div>
 
-      {/* Category Breakdown */}
-      <div className="glass-card rounded-xl p-4">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-primary">По категориям</h3>
-          <PieChart className="w-5 h-5 text-secondary" />
-        </div>
-
-        <div className="space-y-3">
-          {Object.entries(data.breakdown).map(([key, val]) => (
-            <div key={key}>
-              <div className="flex items-center justify-between mb-1">
-                <div className="flex items-center gap-2">
-                  <div className="text-sm font-medium text-primary">{categoryLabels[key]}</div>
-                  <div className="text-xs text-secondary">{val.count} txs</div>
+            <div className="flex items-end justify-between gap-2 h-32">
+              {data.activityByDay.map((day, idx) => (
+                <div key={idx} className="flex-1 flex flex-col items-center gap-2">
+                  <div className="w-full bg-glass rounded-t-lg relative" style={{ height: '100%' }}>
+                    <div
+                      className="absolute bottom-0 w-full bg-gradient-to-t from-blue-500 to-blue-400 rounded-t-lg transition-all hover:from-blue-400 hover:to-blue-300"
+                      style={{ height: `${maxActivity > 0 ? (day.txs / maxActivity) * 100 : 0}%` }}
+                    />
+                  </div>
+                  <div className="text-xs text-secondary font-medium">{day.day}</div>
+                  <div className="text-xs font-bold text-primary">{day.txs}</div>
                 </div>
-                <div className="text-sm font-semibold text-primary">{val.percent}%</div>
-              </div>
-              <div className="w-full bg-glass rounded-full h-2">
-                <div
-                  className={`h-2 rounded-full transition-all ${categoryColors[key]}`}
-                  style={{ width: `${val.percent}%` }}
-                />
-              </div>
+              ))}
             </div>
-          ))}
-        </div>
-      </div>
+          </div>
 
-      {/* Top Contracts */}
-      <div className="glass-card rounded-xl p-4">
-        <h3 className="font-semibold text-primary mb-3">Топ протоколы</h3>
+          {/* Category Breakdown */}
+          <div className="glass-card rounded-xl p-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold text-primary">По категориям</h3>
+              <PieChart className="w-5 h-5 text-secondary" />
+            </div>
 
-        <div className="space-y-2">
-          {data.topContracts.map((contract, idx) => (
-            <div key={idx} className="flex items-center justify-between p-3 glass-subtle rounded-lg hover:bg-glass-hover transition cursor-pointer">
-              <div className="flex items-center gap-3">
-                <div className="text-2xl">{contract.icon}</div>
-                <div>
-                  <div className="font-medium text-sm text-primary">{contract.name}</div>
-                  <div className="text-xs text-secondary">{contract.category}</div>
+            <div className="space-y-3">
+              {Object.entries(data.breakdown).filter(([, val]) => val.count > 0).map(([key, val]) => (
+                <div key={key}>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <div className="text-sm font-medium text-primary">{categoryLabels[key]}</div>
+                      <div className="text-xs text-secondary">{val.count} txs</div>
+                    </div>
+                    <div className="text-sm font-semibold text-primary">{val.percent}%</div>
+                  </div>
+                  <div className="w-full bg-glass rounded-full h-2">
+                    <div
+                      className={`h-2 rounded-full transition-all ${categoryColors[key]}`}
+                      style={{ width: `${val.percent}%` }}
+                    />
+                  </div>
                 </div>
-              </div>
-              <div className="text-right">
-                <div className="text-sm font-semibold text-primary">{contract.txs} txs</div>
-                <div className="text-xs text-secondary">{contract.gas.toFixed(3)} N gas</div>
+              ))}
+            </div>
+          </div>
+
+          {/* Top Contracts */}
+          {data.topContracts.length > 0 && (
+            <div className="glass-card rounded-xl p-4">
+              <h3 className="font-semibold text-primary mb-3">Топ протоколы</h3>
+
+              <div className="space-y-2">
+                {data.topContracts.map((contract, idx) => (
+                  <div key={idx} className="flex items-center justify-between p-3 glass-subtle rounded-lg hover:bg-glass-hover transition cursor-pointer">
+                    <div className="flex items-center gap-3">
+                      <div className="text-2xl">{contract.icon}</div>
+                      <div>
+                        <div className="font-medium text-sm text-primary">{contract.name}</div>
+                        <div className="text-xs text-secondary">{contract.category}</div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm font-semibold text-primary">{contract.txs} txs</div>
+                      <div className="text-xs text-secondary">{contract.gas.toFixed(3)} N gas</div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
-          ))}
+          )}
+        </>
+      )}
+
+      {/* NFT Section */}
+      {!nftsLoading && nfts && nfts.total > 0 && (
+        <div className="glass-card rounded-xl p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-primary">Мои NFT</h3>
+            <div className="flex items-center gap-2">
+              <Image className="w-5 h-5 text-secondary" />
+              <span className="text-sm text-secondary">{nfts.total}</span>
+            </div>
+          </div>
+
+          {/* Wallet NFTs */}
+          {nfts.wallet && nfts.wallet.length > 0 && (
+            <div className="mb-4">
+              <div className="text-xs font-semibold text-secondary mb-2">В кошельке ({nfts.wallet.length})</div>
+              <div className="grid grid-cols-2 gap-3">
+                {nfts.wallet.slice(0, 4).map((nft, idx) => (
+                  <div key={idx} className="glass-subtle rounded-lg p-3 hover:bg-glass-hover transition">
+                    {nft.media ? (
+                      <div className="w-full h-32 bg-glass rounded-lg mb-2 overflow-hidden">
+                        <img 
+                          src={nft.media} 
+                          alt={nft.title}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            e.target.style.display = 'none';
+                            e.target.nextSibling.style.display = 'flex';
+                          }}
+                        />
+                        <div className="w-full h-full hidden items-center justify-center bg-gradient-to-br from-purple-100 to-pink-100">
+                          <Image className="w-8 h-8 text-purple-400" />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="w-full h-32 bg-gradient-to-br from-purple-100 to-pink-100 rounded-lg mb-2 flex items-center justify-center">
+                        <Image className="w-8 h-8 text-purple-400" />
+                      </div>
+                    )}
+                    <div className="text-sm font-medium text-primary truncate">{nft.title}</div>
+                    <div className="text-xs text-secondary truncate">{nft.collection}</div>
+                  </div>
+                ))}
+              </div>
+              {nfts.wallet.length > 4 && (
+                <div className="text-xs text-center text-secondary mt-2">
+                  +{nfts.wallet.length - 4} ещё
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* HOT Staked NFTs */}
+          {nfts.hotStaked && nfts.hotStaked.length > 0 && (
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <div className="text-xs font-semibold text-secondary">Застейканы в HOT ({nfts.hotStaked.length})</div>
+                <div className="text-lg">🔥</div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {nfts.hotStaked.slice(0, 4).map((nft, idx) => (
+                  <div key={idx} className="glass-subtle rounded-lg p-3 hover:bg-glass-hover transition border-2 border-orange-500/20">
+                    <div className="w-full h-32 bg-gradient-to-br from-orange-100 to-red-100 rounded-lg mb-2 flex items-center justify-center">
+                      <div className="text-4xl">🔥</div>
+                    </div>
+                    <div className="text-sm font-medium text-primary truncate">{nft.title || nft.token_id}</div>
+                    <div className="text-xs text-orange-600">Стейкинг активен</div>
+                  </div>
+                ))}
+              </div>
+              {nfts.hotStaked.length > 4 && (
+                <div className="text-xs text-center text-secondary mt-2">
+                  +{nfts.hotStaked.length - 4} ещё
+                </div>
+              )}
+            </div>
+          )}
         </div>
-      </div>
+      )}
     </div>
   );
 }

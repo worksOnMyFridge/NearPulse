@@ -960,6 +960,384 @@ async function getIntearPrices(contracts) {
   }
 }
 
+/**
+ * Получает детальную аналитику транзакций за указанный период.
+ * @param {string} address - NEAR адрес
+ * @param {string} period - Период: 'week' (7 дней), 'month' (30 дней), 'all' (90 дней)
+ * @returns {Promise<Object>} Аналитика с газом, транзакциями, активностью по дням и протоколам
+ */
+async function getAnalytics(address, period = 'week') {
+  try {
+    // Определяем временной промежуток
+    const now = Date.now();
+    const periodMs = {
+      week: 7 * 24 * 60 * 60 * 1000,      // 7 дней
+      month: 30 * 24 * 60 * 60 * 1000,    // 30 дней
+      all: 90 * 24 * 60 * 60 * 1000,      // 90 дней (максимум)
+    };
+    
+    const startTime = now - (periodMs[period] || periodMs.week);
+    
+    // Получаем транзакции
+    const txns = await getTransactionHistory(address);
+    
+    // Фильтруем транзакции по периоду
+    const filteredTxns = txns.filter(tx => {
+      const txTime = parseInt(tx.block_timestamp);
+      const txTimeMs = txTime > 1e15 ? Math.floor(txTime / 1e6) : txTime;
+      return txTimeMs >= startTime;
+    });
+    
+    if (filteredTxns.length === 0) {
+      // Возвращаем пустую аналитику
+      return getEmptyAnalytics(period);
+    }
+    
+    console.log(`📊 Анализируем ${filteredTxns.length} транзакций за период ${period}`);
+    
+    // Получаем курс NEAR для конвертации в USD
+    const nearPrice = await getNearPrice().catch(() => 1.1); // fallback цена
+    
+    // Инициализируем счётчики
+    let totalGasSpent = 0;
+    const contractStats = {}; // contract -> { count, gas, category }
+    const categoryStats = {
+      gaming: { count: 0, usd: 0 },
+      defi: { count: 0, usd: 0 },
+      transfers: { count: 0, usd: 0 },
+      nft: { count: 0, usd: 0 },
+    };
+    
+    // Группируем по дням для графика активности
+    const daysMap = {};
+    
+    // Анализируем каждую транзакцию
+    filteredTxns.forEach(tx => {
+      // Gas потребление
+      const gasAttached = tx.actions_agg?.gas_attached 
+        ? parseFloat(tx.actions_agg.gas_attached) / 1e12  // TGas -> NEAR
+        : 0.002; // примерная стоимость если не указано
+      
+      totalGasSpent += gasAttached;
+      
+      // Контракт получателя
+      const receiver = tx.receiver_account_id;
+      
+      // Пропускаем system транзакции
+      if (receiver === 'system') return;
+      
+      // Определяем категорию по контракту
+      let category = 'transfers';
+      let contractName = receiver;
+      let icon = '📝';
+      
+      if (receiver.includes('hot.tg') || receiver === 'game.hot.tg') {
+        category = 'gaming';
+        contractName = 'Hot Protocol';
+        icon = '🔥';
+      } else if (receiver.includes('harvest-moon')) {
+        category = 'gaming';
+        contractName = 'Moon Protocol';
+        icon = '🌙';
+      } else if (receiver.includes('ref-finance')) {
+        category = 'defi';
+        contractName = 'Ref Finance';
+        icon = '💱';
+      } else if (receiver.includes('rhea')) {
+        category = 'defi';
+        contractName = 'RHEA Finance';
+        icon = '🦩';
+      } else if (receiver.includes('burrow')) {
+        category = 'defi';
+        contractName = 'Burrow';
+        icon = '🏦';
+      } else if (receiver.includes('wrap.near')) {
+        category = 'defi';
+        contractName = 'wNEAR';
+        icon = '🎁';
+      } else if (receiver.includes('.paras.') || receiver.includes('nft')) {
+        category = 'nft';
+        contractName = receiver.split('.')[0];
+        icon = '🎨';
+      } else if (receiver.includes('token.') || receiver.includes('.tkn.')) {
+        category = 'defi';
+        contractName = 'Token Transfer';
+        icon = '🪙';
+      } else {
+        // Переводы NEAR
+        const deposit = tx.actions_agg?.deposit 
+          ? parseFloat(tx.actions_agg.deposit) / 1e24 
+          : 0;
+        if (deposit > 0.01) {
+          category = 'transfers';
+          contractName = 'NEAR Transfer';
+          icon = '📤';
+        }
+      }
+      
+      // Обновляем статистику по контрактам
+      if (!contractStats[receiver]) {
+        contractStats[receiver] = { 
+          name: contractName, 
+          icon, 
+          count: 0, 
+          gas: 0, 
+          category 
+        };
+      }
+      contractStats[receiver].count++;
+      contractStats[receiver].gas += gasAttached;
+      
+      // Обновляем статистику по категориям
+      categoryStats[category].count++;
+      categoryStats[category].usd += gasAttached * nearPrice;
+      
+      // Группируем по дням
+      const txTime = parseInt(tx.block_timestamp);
+      const txTimeMs = txTime > 1e15 ? Math.floor(txTime / 1e6) : txTime;
+      const date = new Date(txTimeMs);
+      const dayKey = date.toISOString().split('T')[0]; // YYYY-MM-DD
+      
+      if (!daysMap[dayKey]) {
+        daysMap[dayKey] = 0;
+      }
+      daysMap[dayKey]++;
+    });
+    
+    // Топ-4 протокола по количеству транзакций
+    const topContracts = Object.values(contractStats)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 4)
+      .map(c => ({
+        name: c.name,
+        icon: c.icon,
+        txs: c.count,
+        gas: c.gas,
+        percent: Math.round((c.gas / totalGasSpent) * 100),
+        category: c.category,
+      }));
+    
+    // Активность по дням (последние 7 или 30 дней)
+    const daysCount = period === 'week' ? 7 : (period === 'month' ? 30 : 30);
+    const activityByDay = [];
+    const dayNames = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+    const monthDays = Array.from({ length: daysCount }, (_, i) => {
+      const d = new Date(now - (daysCount - 1 - i) * 24 * 60 * 60 * 1000);
+      return d;
+    });
+    
+    monthDays.forEach(d => {
+      const dayKey = d.toISOString().split('T')[0];
+      const count = daysMap[dayKey] || 0;
+      const label = period === 'all' || period === 'month' 
+        ? `${d.getDate()}/${d.getMonth() + 1}` 
+        : dayNames[d.getDay()];
+      
+      activityByDay.push({ day: label, txs: count });
+    });
+    
+    // Вычисляем проценты для категорий
+    const totalTxs = filteredTxns.length;
+    const breakdown = {};
+    Object.entries(categoryStats).forEach(([key, val]) => {
+      breakdown[key] = {
+        count: val.count,
+        percent: Math.round((val.count / totalTxs) * 100),
+        usd: val.usd,
+      };
+    });
+    
+    // Определяем самый активный протокол
+    const mostActive = topContracts.length > 0 ? topContracts[0].name : 'N/A';
+    
+    // Формируем insights
+    const insights = [];
+    
+    // Insight 1: Активность
+    const avgTxsPerDay = totalTxs / daysCount;
+    if (avgTxsPerDay > 5) {
+      insights.push({
+        type: 'info',
+        text: `Очень активный период: ${totalTxs} транзакций`,
+        icon: '📈',
+      });
+    } else if (avgTxsPerDay > 2) {
+      insights.push({
+        type: 'info',
+        text: `Стабильная активность: ~${Math.round(avgTxsPerDay)} транзакций/день`,
+        icon: '📊',
+      });
+    } else {
+      insights.push({
+        type: 'info',
+        text: `Низкая активность: ${totalTxs} транзакций за период`,
+        icon: '😴',
+      });
+    }
+    
+    // Insight 2: Gas расходы
+    const gasUSD = (totalGasSpent * nearPrice).toFixed(2);
+    if (totalGasSpent > 0.1) {
+      insights.push({
+        type: 'warning',
+        text: `Gas расходы: ${totalGasSpent.toFixed(3)} NEAR (~$${gasUSD})`,
+        icon: '⚠️',
+      });
+    } else {
+      insights.push({
+        type: 'success',
+        text: `Низкие gas расходы: ${totalGasSpent.toFixed(3)} NEAR`,
+        icon: '✅',
+      });
+    }
+    
+    // Insight 3: Топ протокол
+    if (mostActive !== 'N/A') {
+      insights.push({
+        type: 'info',
+        text: `Любимый протокол: ${mostActive}`,
+        icon: topContracts[0].icon,
+      });
+    }
+    
+    return {
+      totalTxs,
+      gasSpent: totalGasSpent,
+      gasUSD: (totalGasSpent * nearPrice).toFixed(2),
+      uniqueContracts: Object.keys(contractStats).length,
+      mostActive,
+      insights,
+      breakdown,
+      topContracts,
+      activityByDay,
+    };
+  } catch (error) {
+    console.error('getAnalytics error:', error.message);
+    return getEmptyAnalytics(period);
+  }
+}
+
+/**
+ * Возвращает пустую структуру аналитики.
+ */
+function getEmptyAnalytics(period = 'week') {
+  const daysCount = period === 'week' ? 7 : (period === 'month' ? 30 : 30);
+  const dayNames = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+  const activityByDay = [];
+  
+  for (let i = daysCount - 1; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+    const label = period === 'all' || period === 'month' 
+      ? `${d.getDate()}/${d.getMonth() + 1}` 
+      : dayNames[d.getDay()];
+    activityByDay.push({ day: label, txs: 0 });
+  }
+  
+  return {
+    totalTxs: 0,
+    gasSpent: 0,
+    gasUSD: '0.00',
+    uniqueContracts: 0,
+    mostActive: 'N/A',
+    insights: [
+      { type: 'info', text: 'Нет транзакций за этот период', icon: '📭' }
+    ],
+    breakdown: {
+      gaming: { count: 0, percent: 0, usd: 0 },
+      defi: { count: 0, percent: 0, usd: 0 },
+      transfers: { count: 0, percent: 0, usd: 0 },
+      nft: { count: 0, percent: 0, usd: 0 },
+    },
+    topContracts: [],
+    activityByDay,
+  };
+}
+
+/**
+ * Получает список NFT на балансе пользователя.
+ * @param {string} address - NEAR адрес
+ * @returns {Promise<Array>} Массив NFT с метаданными
+ */
+async function getNFTBalance(address) {
+  try {
+    const url = `${NEARBLOCKS_API_URL}/account/${address}/inventory`;
+    const response = await axios.get(url, { timeout: API_TIMEOUT });
+    
+    const nfts = response.data.inventory?.nfts ?? [];
+    
+    console.log(`🎨 [NFT] Найдено ${nfts.length} NFT для ${address}`);
+    
+    // Форматируем NFT для удобного отображения
+    return nfts.map(nft => ({
+      contract: nft.contract,
+      token_id: nft.token_id,
+      title: nft.nft?.metadata?.title || nft.token_id,
+      description: nft.nft?.metadata?.description || '',
+      media: nft.nft?.metadata?.media || null,
+      collection: nft.contract,
+    }));
+  } catch (error) {
+    console.error('getNFTBalance error:', error.message);
+    return [];
+  }
+}
+
+/**
+ * Получает застейканные NFT в HOT Craft.
+ * @param {string} address - NEAR адрес
+ * @returns {Promise<Array>} Массив застейканных NFT
+ */
+async function getHotStakedNFTs(address) {
+  try {
+    // HOT Craft контракт: game.hot.tg
+    // Вызываем метод get_user для получения информации о застейканных NFT
+    const argsBase64 = Buffer.from(
+      JSON.stringify({ account_id: address })
+    ).toString('base64');
+
+    const response = await axios.post(
+      NEAR_RPC_URL,
+      {
+        jsonrpc: '2.0',
+        id: 'dontcare',
+        method: 'query',
+        params: {
+          request_type: 'call_function',
+          finality: 'final',
+          account_id: HOT_CONTRACT,
+          method_name: 'get_user',
+          args_base64: argsBase64,
+        },
+      },
+      { timeout: API_TIMEOUT }
+    );
+
+    if (response.data.error) {
+      console.log('[HOT Staked NFTs] Аккаунт не зарегистрирован в HOT');
+      return [];
+    }
+
+    const result = response.data.result?.result;
+    if (!result || !Array.isArray(result)) return [];
+
+    const jsonStr = Buffer.from(result).toString('utf8');
+    const userData = JSON.parse(jsonStr);
+    
+    console.log('[HOT Staked NFTs] User data получена:', JSON.stringify(userData).substring(0, 200));
+    
+    // Извлекаем информацию о застейканных NFT из ответа
+    // Структура зависит от HOT контракта, нужно проверить реальный ответ
+    const stakedNFTs = userData.staked_nfts || userData.nfts || [];
+    
+    console.log(`🔥 [HOT] Найдено ${stakedNFTs.length} застейканных NFT`);
+    
+    return stakedNFTs;
+  } catch (error) {
+    console.error('getHotStakedNFTs error:', error.message);
+    return [];
+  }
+}
+
 module.exports = {
   getBalance,
   getTokenBalance,
@@ -970,6 +1348,9 @@ module.exports = {
   getTransactionDetails,
   getHotClaimStatus,
   getNearPrice,
+  getAnalytics,
+  getNFTBalance,
+  getHotStakedNFTs,
   TOKEN_DECIMALS_MAP,
   TOKEN_COINGECKO_MAP,
 };

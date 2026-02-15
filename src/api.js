@@ -9,6 +9,9 @@ const {
   getNearPrice,
   getTransactionHistory,
   getHotClaimStatus,
+  getAnalytics,
+  getNFTBalance,
+  getHotStakedNFTs,
 } = require('./services/nearService');
 
 const app = express();
@@ -286,6 +289,75 @@ app.get(['/api/hot-claim/:address', '/hot-claim/:address'], async (req, res) => 
 });
 
 /**
+ * GET /api/analytics/:address и /analytics/:address
+ * Возвращает аналитику транзакций за период
+ * Query params: period=week|month|all (по умолчанию week)
+ */
+app.get(['/api/analytics/:address', '/analytics/:address'], async (req, res) => {
+  try {
+    const { address } = req.params;
+    const period = req.query.period || 'week';
+    
+    // Валидация периода
+    if (!['week', 'month', 'all'].includes(period)) {
+      return res.status(400).json({
+        error: 'Invalid period',
+        message: 'Period must be one of: week, month, all',
+      });
+    }
+    
+    console.log(`[API] Получаем аналитику для ${address}, период: ${period}`);
+    
+    const analytics = await getAnalytics(address, period);
+    
+    res.json({
+      address,
+      period,
+      ...analytics,
+      timestamp: Date.now(),
+    });
+  } catch (error) {
+    console.error('[API] Ошибка в /api/analytics:', error.message);
+    res.status(500).json({
+      error: 'Failed to fetch analytics',
+      message: error.message,
+    });
+  }
+});
+
+/**
+ * GET /api/nfts/:address и /nfts/:address
+ * Возвращает список NFT пользователя (кошелёк + застейканные в HOT)
+ */
+app.get(['/api/nfts/:address', '/nfts/:address'], async (req, res) => {
+  try {
+    const { address } = req.params;
+    
+    console.log(`[API] Получаем NFT для ${address}`);
+    
+    // Параллельно получаем NFT из кошелька и застейканные в HOT
+    const [walletNFTs, hotStakedNFTs] = await Promise.all([
+      getNFTBalance(address),
+      getHotStakedNFTs(address),
+    ]);
+    
+    res.json({
+      address,
+      wallet: walletNFTs,
+      hotStaked: hotStakedNFTs,
+      total: walletNFTs.length + hotStakedNFTs.length,
+      timestamp: Date.now(),
+    });
+  } catch (error) {
+    console.error('[API] Ошибка в /api/nfts:', error.message);
+    res.status(500).json({
+      error: 'Failed to fetch NFTs',
+      message: error.message,
+    });
+  }
+});
+
+/**
  * GET / и /api
  * Корневой путь - информация об API
  */
@@ -298,6 +370,8 @@ app.get(['/', '/api'], (req, res) => {
       'GET /api/balance/:address - Get account balance',
       'GET /api/transactions/:address?limit=10 - Get transaction history',
       'GET /api/hot-claim/:address - Get HOT claim status',
+      'GET /api/analytics/:address?period=week - Get transaction analytics (period: week, month, all)',
+      'GET /api/nfts/:address - Get user NFTs (wallet + HOT staked)',
     ],
   });
 });
