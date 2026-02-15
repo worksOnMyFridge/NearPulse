@@ -716,6 +716,24 @@ async function runHotClaimMonitor() {
   }
 }
 
+async function launchBotWithRetry(maxRetries = 5) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await bot.launch({ dropPendingUpdates: true });
+      console.log('✅ NearPulse bot started successfully');
+      return;
+    } catch (error) {
+      if (error.message?.includes('409') && attempt < maxRetries) {
+        const delay = attempt * 3000;
+        console.warn(`⚠️ Bot conflict (409), retry ${attempt}/${maxRetries} in ${delay / 1000}s...`);
+        await new Promise(r => setTimeout(r, delay));
+      } else {
+        throw error;
+      }
+    }
+  }
+}
+
 async function main() {
   try {
     getDb();
@@ -728,8 +746,7 @@ async function main() {
       console.log(`🚀 NearPulse API запущен на 0.0.0.0:${API_PORT}`);
     });
 
-    await bot.launch();
-    console.log('✅ NearPulse bot started successfully');
+    await launchBotWithRetry();
 
     cron.schedule('*/15 * * * *', runHotClaimMonitor);
     console.log('⏰ HOT Claim Monitor: каждые 15 мин (уведомление за 15 мин до клейма)');
