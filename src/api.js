@@ -328,6 +328,7 @@ app.get(['/api/analytics/:address', '/analytics/:address'], async (req, res) => 
 /**
  * GET /api/nfts/:address и /nfts/:address
  * Возвращает список NFT пользователя (кошелёк + застейканные в HOT)
+ * FAIL-SAFE: Всегда возвращает 200 OK, даже при ошибках
  */
 app.get(['/api/nfts/:address', '/nfts/:address'], async (req, res) => {
   try {
@@ -336,23 +337,40 @@ app.get(['/api/nfts/:address', '/nfts/:address'], async (req, res) => {
     console.log(`[API] Получаем NFT для ${address}`);
     
     // Параллельно получаем NFT из кошелька и застейканные в HOT
-    const [walletNFTs, hotStakedNFTs] = await Promise.all([
+    const [walletResult, hotResult] = await Promise.allSettled([
       getNFTBalance(address),
       getHotStakedNFTs(address),
     ]);
+    
+    // Обрабатываем результаты с fail-safe
+    const walletNFTs = walletResult.status === 'fulfilled' ? walletResult.value : [];
+    const hotStakedNFTs = hotResult.status === 'fulfilled' ? hotResult.value : [];
+    
+    // Определяем ошибку если она была
+    const hasError = walletResult.status === 'rejected' || hotResult.status === 'rejected';
+    const errorMessage = hasError 
+      ? (walletResult.reason?.message || hotResult.reason?.message || 'NFT_LOAD_FAILED')
+      : null;
     
     res.json({
       address,
       wallet: walletNFTs,
       hotStaked: hotStakedNFTs,
       total: walletNFTs.length + hotStakedNFTs.length,
+      error: errorMessage,
       timestamp: Date.now(),
     });
   } catch (error) {
-    console.error('[API] Ошибка в /api/nfts:', error.message);
-    res.status(500).json({
-      error: 'Failed to fetch NFTs',
+    // FAIL-SAFE: Возвращаем 200 OK с пустыми данными
+    console.error('[API] Критическая ошибка в /api/nfts:', error.message);
+    res.status(200).json({
+      address: req.params.address,
+      wallet: [],
+      hotStaked: [],
+      total: 0,
+      error: 'NFT_CRITICAL_ERROR',
       message: error.message,
+      timestamp: Date.now(),
     });
   }
 });

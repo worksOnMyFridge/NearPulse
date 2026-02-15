@@ -50,23 +50,22 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
     loadAnalytics();
   }, [displayAddress, selectedPeriod]);
 
-  // Загружаем NFT
-  useEffect(() => {
-    async function loadNFTs() {
-      try {
-        setNftsLoading(true);
-        const nftData = await fetchNFTs(displayAddress);
-        setNfts(nftData);
-      } catch (err) {
-        console.error('Error loading NFTs:', err);
-        setNfts(null);
-      } finally {
-        setNftsLoading(false);
-      }
-    }
-
-    loadNFTs();
-  }, [displayAddress]);
+  // NFT отключены - загружаются только в Галерее вручную
+  // useEffect(() => {
+  //   async function loadNFTs() {
+  //     try {
+  //       setNftsLoading(true);
+  //       const nftData = await fetchNFTs(displayAddress);
+  //       setNfts(nftData);
+  //     } catch (err) {
+  //       console.error('Error loading NFTs:', err);
+  //       setNfts(null);
+  //     } finally {
+  //       setNftsLoading(false);
+  //     }
+  //   }
+  //   loadNFTs();
+  // }, [displayAddress]);
 
   // Обновляем таймер каждую секунду
   useEffect(() => {
@@ -379,84 +378,16 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
         </>
       )}
 
-      {/* NFT Section */}
-      {!nftsLoading && nfts && nfts.total > 0 && (
+      {/* NFT Section - ОТКЛЮЧЕНО для стабильности */}
+      {/* {!nftsLoading && nfts && nfts.total > 0 && (
         <div className="glass-card rounded-xl p-4">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-primary">Мои NFT</h3>
-            <div className="flex items-center gap-2">
-              <Image className="w-5 h-5 text-secondary" />
-              <span className="text-sm text-secondary">{nfts.total}</span>
-            </div>
+          <div className="text-center">
+            <div className="text-4xl mb-2">🎨</div>
+            <div className="text-primary font-medium mb-1">NFT Галерея</div>
+            <div className="text-secondary text-sm">Доступна на вкладке "Галерея"</div>
           </div>
-
-          {/* Wallet NFTs */}
-          {nfts.wallet && nfts.wallet.length > 0 && (
-            <div className="mb-4">
-              <div className="text-xs font-semibold text-secondary mb-2">В кошельке ({nfts.wallet.length})</div>
-              <div className="grid grid-cols-2 gap-3">
-                {nfts.wallet.slice(0, 4).map((nft, idx) => (
-                  <div key={idx} className="glass-subtle rounded-lg p-3 hover:bg-glass-hover transition">
-                    {nft.media ? (
-                      <div className="w-full h-32 bg-glass rounded-lg mb-2 overflow-hidden">
-                        <img 
-                          src={nft.media} 
-                          alt={nft.title}
-                          className="w-full h-full object-cover"
-                          onError={(e) => {
-                            e.target.style.display = 'none';
-                            e.target.nextSibling.style.display = 'flex';
-                          }}
-                        />
-                        <div className="w-full h-full hidden items-center justify-center bg-gradient-to-br from-purple-100 to-pink-100">
-                          <Image className="w-8 h-8 text-purple-400" />
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="w-full h-32 bg-gradient-to-br from-purple-100 to-pink-100 rounded-lg mb-2 flex items-center justify-center">
-                        <Image className="w-8 h-8 text-purple-400" />
-                      </div>
-                    )}
-                    <div className="text-sm font-medium text-primary truncate">{nft.title}</div>
-                    <div className="text-xs text-secondary truncate">{nft.collection}</div>
-                  </div>
-                ))}
-              </div>
-              {nfts.wallet.length > 4 && (
-                <div className="text-xs text-center text-secondary mt-2">
-                  +{nfts.wallet.length - 4} ещё
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* HOT Staked NFTs */}
-          {nfts.hotStaked && nfts.hotStaked.length > 0 && (
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <div className="text-xs font-semibold text-secondary">Застейканы в HOT ({nfts.hotStaked.length})</div>
-                <div className="text-lg">🔥</div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                {nfts.hotStaked.slice(0, 4).map((nft, idx) => (
-                  <div key={idx} className="glass-subtle rounded-lg p-3 hover:bg-glass-hover transition border-2 border-orange-500/20">
-                    <div className="w-full h-32 bg-gradient-to-br from-orange-100 to-red-100 rounded-lg mb-2 flex items-center justify-center">
-                      <div className="text-4xl">🔥</div>
-                    </div>
-                    <div className="text-sm font-medium text-primary truncate">{nft.title || nft.token_id}</div>
-                    <div className="text-xs text-orange-600">Стейкинг активен</div>
-                  </div>
-                ))}
-              </div>
-              {nfts.hotStaked.length > 4 && (
-                <div className="text-xs text-center text-secondary mt-2">
-                  +{nfts.hotStaked.length - 4} ещё
-                </div>
-              )}
-            </div>
-          )}
         </div>
-      )}
+      )} */}
     </div>
   );
 }
