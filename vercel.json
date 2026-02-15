@@ -1,19 +1,26 @@
 {
-  "buildCommand": "cd webapp && npm run build",
-  "outputDirectory": "webapp/dist",
-  "installCommand": "npm install",
-  "rewrites": [
+  "version": 2,
+  "builds": [
     {
-      "source": "/api/health",
-      "destination": "/api/index"
+      "src": "webapp/package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/index.js"
     },
     {
-      "source": "/api/balance/:address",
-      "destination": "/api/index"
+      "src": "/(.*\\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot|json))",
+      "dest": "/webapp/dist/$1"
     },
     {
-      "source": "/api/:path*",
-      "destination": "/api/index"
+      "src": "/(.*)",
+      "dest": "/webapp/dist/index.html"
     }
   ]
 }
