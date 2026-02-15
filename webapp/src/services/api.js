@@ -3,8 +3,8 @@
  */
 
 // Используем VITE_API_URL из переменных окружения
-// Fallback на localhost для локальной разработки
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+// Fallback на Railway production URL
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://nearpulse-bot-production.up.railway.app';
 
 /**
  * Получить баланс аккаунта
