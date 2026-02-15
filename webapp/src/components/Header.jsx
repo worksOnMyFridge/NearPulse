@@ -8,6 +8,7 @@ export default function Header({ address, currentScreen, onScreenChange }) {
     { key: 'overview', label: 'Обзор' },
     { key: 'transactions', label: 'Транзакции' },
     { key: 'analytics', label: 'Аналитика' },
+    { key: 'gallery', label: '🎨 Галерея' },
   ];
 
   return (

@@ -132,6 +132,60 @@ export async function fetchNFTs(address) {
   }
 }
 
+/**
+ * Пометить NFT как спам
+ * @param {string} address - NEAR адрес
+ * @param {Array<string>} nftIds - Массив ID NFT для пометки
+ * @returns {Promise<Object>} Результат операции
+ */
+export async function markNFTsAsSpam(address, nftIds) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/nfts/spam`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ address, nftIds }),
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Error marking NFTs as spam:', error);
+    throw error;
+  }
+}
+
+/**
+ * Восстановить NFT из спама
+ * @param {string} address - NEAR адрес
+ * @param {Array<string>} nftIds - Массив ID NFT для восстановления
+ * @returns {Promise<Object>} Результат операции
+ */
+export async function restoreNFTsFromSpam(address, nftIds) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/nfts/spam`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ address, nftIds }),
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Error restoring NFTs from spam:', error);
+    throw error;
+  }
+}
+
 export default {
   fetchUserBalance,
   fetchTransactions,
@@ -139,4 +193,6 @@ export default {
   checkApiHealth,
   fetchAnalytics,
   fetchNFTs,
+  markNFTsAsSpam,
+  restoreNFTsFromSpam,
 };

@@ -5,6 +5,7 @@ import Header from './components/Header';
 import OverviewScreen from './components/OverviewScreen';
 import TransactionsScreen from './components/TransactionsScreen';
 import AnalyticsScreen from './components/AnalyticsScreen';
+import GalleryScreen from './components/GalleryScreen';
 import LoadingSpinner from './components/LoadingSpinner';
 
 export default function App() {
@@ -108,6 +109,7 @@ export default function App() {
         {currentScreen === 'analytics' && (
           <AnalyticsScreen selectedPeriod={selectedPeriod} />
         )}
+        {currentScreen === 'gallery' && <GalleryScreen />}
       </div>
     </div>
   );

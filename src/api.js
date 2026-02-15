@@ -358,6 +358,72 @@ app.get(['/api/nfts/:address', '/nfts/:address'], async (req, res) => {
 });
 
 /**
+ * POST /api/nfts/spam и /nfts/spam
+ * Помечает NFT как спам
+ */
+app.post(['/api/nfts/spam', '/nfts/spam'], async (req, res) => {
+  try {
+    const { address, nftIds } = req.body;
+    
+    if (!address || !nftIds || !Array.isArray(nftIds)) {
+      return res.status(400).json({
+        error: 'Invalid request',
+        message: 'Required fields: address (string), nftIds (array)',
+      });
+    }
+    
+    console.log(`[API] Помечаем ${nftIds.length} NFT как спам для ${address}`);
+    
+    // В простой версии просто возвращаем успех
+    // В будущем можно добавить сохранение в БД
+    res.json({
+      success: true,
+      address,
+      spammedCount: nftIds.length,
+      timestamp: Date.now(),
+    });
+  } catch (error) {
+    console.error('[API] Ошибка в /api/nfts/spam:', error.message);
+    res.status(500).json({
+      error: 'Failed to mark as spam',
+      message: error.message,
+    });
+  }
+});
+
+/**
+ * DELETE /api/nfts/spam и /nfts/spam
+ * Восстанавливает NFT из спама
+ */
+app.delete(['/api/nfts/spam', '/nfts/spam'], async (req, res) => {
+  try {
+    const { address, nftIds } = req.body;
+    
+    if (!address || !nftIds || !Array.isArray(nftIds)) {
+      return res.status(400).json({
+        error: 'Invalid request',
+        message: 'Required fields: address (string), nftIds (array)',
+      });
+    }
+    
+    console.log(`[API] Восстанавливаем ${nftIds.length} NFT из спама для ${address}`);
+    
+    res.json({
+      success: true,
+      address,
+      restoredCount: nftIds.length,
+      timestamp: Date.now(),
+    });
+  } catch (error) {
+    console.error('[API] Ошибка в /api/nfts/spam:', error.message);
+    res.status(500).json({
+      error: 'Failed to restore from spam',
+      message: error.message,
+    });
+  }
+});
+
+/**
  * GET / и /api
  * Корневой путь - информация об API
  */
