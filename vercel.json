@@ -1,17 +1,33 @@
 {
-  "buildCommand": "cd webapp && npm run build",
-  "outputDirectory": "webapp/dist",
-  "installCommand": "npm ci && cd webapp && npm ci",
-  "functions": {
-    "api/index.js": {
-      "memory": 1024,
-      "maxDuration": 10
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/**/*.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "webapp/package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist"
+      }
     }
-  },
-  "rewrites": [
-    { 
-      "source": "/api/:path*", 
-      "destination": "/api/index" 
+  ],
+  "routes": [
+    {
+      "src": "/api/test",
+      "dest": "/api/test.js"
+    },
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/index.js"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/webapp/dist/$1"
     }
   ]
 }
