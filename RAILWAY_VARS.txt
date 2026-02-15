@@ -1,0 +1,18 @@
+═══════════════════════════════════════════════════════
+📋 ПЕРЕМЕННЫЕ ДЛЯ RAILWAY
+═══════════════════════════════════════════════════════
+
+Скопируйте эти переменные в Railway → Variables:
+
+TELEGRAM_BOT_TOKEN=8282290487:AAFqL2btAKzV3UncujMFpQG5CHq58htwFUw
+GOOGLE_API_KEY=AIzaSyDOzQd1eXr5nF0-B6vrYDmicWBT6jPn9UA
+PIKESPEAK_API_KEY=38487d59-a305-4f33-b21b-1cbaddbc8e26
+WEBAPP_URL=https://near-pulse.vercel.app
+PORT=3001
+
+═══════════════════════════════════════════════════════
+
+⚠️ ВАЖНО: Вижу что в Railway уже добавлены переменные,
+но проверьте что PORT=3001 там есть!
+
+═══════════════════════════════════════════════════════

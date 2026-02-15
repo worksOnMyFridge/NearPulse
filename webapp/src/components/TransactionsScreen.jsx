@@ -1,126 +1,131 @@
-import { useState } from 'react';
-import { Filter, Clock, Zap, ChevronRight, ChevronDown, ExternalLink } from 'lucide-react';
-import { transactions } from '../lib/mockData';
+import { useState, useEffect } from 'react';
+import { Clock, ExternalLink } from 'lucide-react';
+import { fetchTransactions } from '../services/api';
+import { useTelegram } from '../hooks/useTelegram';
+import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
+import 'dayjs/locale/ru';
+
+dayjs.extend(relativeTime);
+dayjs.locale('ru');
 
 export default function TransactionsScreen() {
-  const [expandedTxs, setExpandedTxs] = useState(new Set());
+  const { address } = useTelegram();
+  const [transactions, setTransactions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  const toggleTx = (id) => {
-    setExpandedTxs(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
+  const displayAddress = address || 'leninjiv23.tg';
+
+  useEffect(() => {
+    async function loadTransactions() {
+      try {
+        setLoading(true);
+        setError(null);
+        
+        const data = await fetchTransactions(displayAddress, 10);
+        setTransactions(data.transactions);
+      } catch (err) {
+        console.error('Error loading transactions:', err);
+        setError(err.message);
+      } finally {
+        setLoading(false);
       }
-      return next;
-    });
-  };
+    }
+
+    loadTransactions();
+  }, [displayAddress]);
+
+  if (loading) {
+    return (
+      <div className="bg-white rounded-xl p-8 border border-gray-100 text-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-3"></div>
+        <div className="text-sm text-gray-500">Загружаем транзакции...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-red-50 rounded-xl p-4 border border-red-200">
+        <div className="text-2xl mb-2 text-center">⚠️</div>
+        <div className="text-red-800 font-medium text-center mb-1">Ошибка загрузки</div>
+        <div className="text-red-600 text-sm text-center">{error}</div>
+      </div>
+    );
+  }
+
+  if (transactions.length === 0) {
+    return (
+      <div className="bg-white rounded-xl p-8 border border-gray-100 text-center">
+        <div className="text-4xl mb-3">📭</div>
+        <div className="text-gray-700 font-medium mb-1">Нет транзакций</div>
+        <div className="text-sm text-gray-500">История транзакций пока пуста</div>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-4">
-      {/* Filters */}
-      <div className="bg-white rounded-xl p-4 border border-gray-100">
-        <div className="flex items-center gap-2 mb-3">
-          <Filter className="w-4 h-4 text-gray-500" />
-          <span className="text-sm font-medium text-gray-700">Фильтры</span>
-        </div>
-
-        <div className="flex gap-2 flex-wrap">
-          {['Все', 'Gaming', 'DeFi', 'Transfers', 'NFT'].map(filter => (
-            <button
-              key={filter}
-              className="px-3 py-1.5 text-xs font-medium rounded-full border border-gray-200 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 transition"
-            >
-              {filter}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Transaction List */}
-      <div className="space-y-2">
-        {transactions.map(tx => (
-          <div key={tx.id} className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-            <div
-              onClick={() => tx.txCount > 1 ? toggleTx(tx.id) : null}
-              className="p-4 hover:bg-gray-50 transition cursor-pointer"
-            >
-              <div className="flex items-start justify-between mb-2">
-                <div className="flex items-start gap-3 flex-1">
-                  <div className="text-2xl mt-0.5">{tx.icon}</div>
-                  <div className="flex-1">
-                    <div className="font-semibold text-sm mb-0.5">{tx.action}</div>
-                    <div className="flex items-center gap-2 text-xs text-gray-500">
-                      <span>{tx.protocol}</span>
-                      <span>&bull;</span>
-                      <span className="px-2 py-0.5 bg-gray-100 rounded-full">{tx.category}</span>
-                    </div>
-                  </div>
+    <div className="space-y-3">
+      {transactions.map(tx => (
+        <div key={tx.hash} className="bg-white rounded-xl border border-gray-100 p-4 hover:shadow-md transition">
+          <div className="flex items-start gap-3">
+            {/* Icon */}
+            <div className="text-2xl mt-0.5 flex-shrink-0">{tx.icon}</div>
+            
+            {/* Main Content */}
+            <div className="flex-1 min-w-0">
+              {/* Description */}
+              <div className="font-semibold text-sm mb-1 truncate">{tx.description}</div>
+              
+              {/* Time and Link */}
+              <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
+                <div className="flex items-center gap-1">
+                  <Clock className="w-3 h-3" />
+                  <span>{dayjs(tx.timestamp).fromNow()}</span>
                 </div>
-
-                {tx.txCount > 1 ? (
-                  expandedTxs.has(tx.id) ?
-                    <ChevronDown className="w-5 h-5 text-gray-400 flex-shrink-0" /> :
-                    <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
-                ) : (
-                  <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
-                )}
+                <span>&bull;</span>
+                <a 
+                  href={`https://nearblocks.io/txns/${tx.hash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 hover:text-blue-600 transition"
+                >
+                  Explorer <ExternalLink className="w-3 h-3" />
+                </a>
               </div>
 
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3 text-xs text-gray-500">
-                  <div className="flex items-center gap-1">
-                    <Clock className="w-3 h-3" />
-                    {tx.time}
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Zap className="w-3 h-3" />
-                    {tx.gas.toFixed(4)} N
-                  </div>
-                  {tx.txCount > 1 && (
-                    <div className="px-2 py-0.5 bg-blue-100 text-blue-600 rounded-full font-medium">
-                      {tx.txCount} txs
-                    </div>
+              {/* Amount */}
+              {tx.amount > 0.01 && (
+                <div className="flex items-baseline gap-2">
+                  <span className="font-bold text-base text-gray-900">
+                    {parseFloat(tx.amountFormatted).toFixed(2)} NEAR
+                  </span>
+                  {tx.usdValue && (
+                    <span className="text-xs text-gray-500">
+                      ≈ ${tx.usdValue.toFixed(2)}
+                    </span>
                   )}
                 </div>
-
-                <div className={`text-sm font-semibold ${tx.result.startsWith('+') ? 'text-green-600' : 'text-gray-600'}`}>
-                  {tx.result}
+              )}
+              
+              {/* Token Name for token transfers */}
+              {tx.tokenName && (
+                <div className="mt-1 inline-block px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full font-medium">
+                  {tx.tokenName}
                 </div>
-              </div>
+              )}
             </div>
-
-            {/* Expanded Details */}
-            {expandedTxs.has(tx.id) && tx.grouped && (
-              <div className="bg-gray-50 px-4 py-3 border-t border-gray-100">
-                <div className="text-xs font-semibold text-gray-500 mb-3">Шаги транзакции:</div>
-                <div className="space-y-2">
-                  {tx.grouped.map((step, idx) => (
-                    <div key={idx} className="bg-white rounded-lg p-3 border border-gray-100">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="text-xs text-gray-500 mb-1">Шаг {idx + 1}</div>
-                          <div className="font-medium text-sm">{step.action}</div>
-                          <div className="text-xs text-gray-500 mt-1 font-mono">{step.contract}</div>
-                        </div>
-                        <div className="text-xs text-gray-500 flex items-center gap-1">
-                          <Zap className="w-3 h-3" />
-                          {step.gas.toFixed(4)} N
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <button className="w-full mt-3 bg-blue-500 text-white rounded-lg py-2 text-sm font-medium hover:bg-blue-600 transition flex items-center justify-center gap-2">
-                  Посмотреть в Explorer
-                  <ExternalLink className="w-4 h-4" />
-                </button>
-              </div>
-            )}
           </div>
-        ))}
-      </div>
+        </div>
+      ))}
+
+      {/* Show More Button */}
+      {transactions.length >= 10 && (
+        <button className="w-full bg-gray-100 text-gray-700 rounded-xl py-3 text-sm font-medium hover:bg-gray-200 transition">
+          Показать еще
+        </button>
+      )}
     </div>
   );
 }

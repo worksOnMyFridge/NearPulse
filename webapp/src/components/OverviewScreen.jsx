@@ -1,7 +1,65 @@
-import { Activity, Zap, Sparkles, TrendingUp, BarChart3, PieChart, Wallet } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Activity, Zap, Sparkles, TrendingUp, BarChart3, PieChart, Wallet, Clock } from 'lucide-react';
 import { analytics } from '../lib/mockData';
+import { fetchHotClaimStatus } from '../services/api';
+import { useTelegram } from '../hooks/useTelegram';
 
 export default function OverviewScreen({ selectedPeriod, onPeriodChange, balanceData }) {
+  const { address } = useTelegram();
+  const [claimStatus, setClaimStatus] = useState(null);
+  const [timeRemaining, setTimeRemaining] = useState('');
+  
+  const displayAddress = address || 'leninjiv23.tg';
+
+  // Загружаем статус клейма
+  useEffect(() => {
+    async function loadClaimStatus() {
+      try {
+        const status = await fetchHotClaimStatus(displayAddress);
+        setClaimStatus(status);
+      } catch (err) {
+        console.error('Error loading HOT claim status:', err);
+      }
+    }
+
+    loadClaimStatus();
+    // Обновляем каждые 30 секунд
+    const interval = setInterval(loadClaimStatus, 30000);
+    return () => clearInterval(interval);
+  }, [displayAddress]);
+
+  // Обновляем таймер каждую секунду
+  useEffect(() => {
+    if (!claimStatus || !claimStatus.nextClaimTime) {
+      setTimeRemaining('');
+      return;
+    }
+
+    const updateTimer = () => {
+      const now = Date.now();
+      const nextClaim = claimStatus.nextClaimTime;
+      const diff = nextClaim - now;
+
+      if (diff <= 0) {
+        setTimeRemaining('Можно клеймить! 🎉');
+        return;
+      }
+
+      const hours = Math.floor(diff / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
+      if (hours > 0) {
+        setTimeRemaining(`${hours}ч ${minutes}м ${seconds}с`);
+      } else {
+        setTimeRemaining(`${minutes}м ${seconds}с`);
+      }
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [claimStatus]);
   const data = analytics[selectedPeriod] || analytics.week;
   const maxActivity = Math.max(...data.activityByDay.map(d => d.txs));
 
@@ -103,6 +161,38 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
                 {balanceData.hot.amount.toLocaleString('ru-RU', { maximumFractionDigits: 0 })}
               </div>
               <div className="text-xs opacity-75">токенов</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* HOT Claim Timer */}
+      {claimStatus && (
+        <div className={`rounded-xl p-4 border-2 ${
+          claimStatus.canClaim 
+            ? 'bg-gradient-to-br from-orange-500 to-red-500 text-white border-orange-600' 
+            : 'bg-white border-gray-200'
+        }`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="text-3xl">🔥</div>
+              <div>
+                <div className={`text-sm font-semibold ${claimStatus.canClaim ? 'text-white' : 'text-gray-900'}`}>
+                  {claimStatus.canClaim ? 'HOT готов к клейму!' : 'Следующий клейм HOT'}
+                </div>
+                <div className={`text-xs ${claimStatus.canClaim ? 'text-white opacity-90' : 'text-gray-500'}`}>
+                  {claimStatus.canClaim ? 'Откройте бота чтобы получить' : 'Осталось времени'}
+                </div>
+              </div>
+            </div>
+            
+            <div className="text-right">
+              <div className={`flex items-center gap-1 ${claimStatus.canClaim ? 'text-white' : 'text-gray-700'}`}>
+                {!claimStatus.canClaim && <Clock className="w-4 h-4" />}
+                <div className="text-lg font-bold font-mono">
+                  {timeRemaining || '...'}
+                </div>
+              </div>
             </div>
           </div>
         </div>

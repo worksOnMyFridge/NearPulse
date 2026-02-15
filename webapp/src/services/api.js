@@ -28,6 +28,49 @@ export async function fetchUserBalance(address) {
 }
 
 /**
+ * Получить историю транзакций
+ * @param {string} address - NEAR адрес
+ * @param {number} limit - Количество транзакций (по умолчанию 10)
+ * @returns {Promise<Object>} История транзакций
+ */
+export async function fetchTransactions(address, limit = 10) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/transactions/${address}?limit=${limit}`);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error fetching transactions:', error);
+    throw error;
+  }
+}
+
+/**
+ * Получить статус HOT claim
+ * @param {string} address - NEAR адрес
+ * @returns {Promise<Object>} Статус клейма
+ */
+export async function fetchHotClaimStatus(address) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/hot-claim/${address}`);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error fetching HOT claim status:', error);
+    throw error;
+  }
+}
+
+/**
  * Проверить работоспособность API
  * @returns {Promise<Object>} Статус API
  */
@@ -48,5 +91,7 @@ export async function checkApiHealth() {
 
 export default {
   fetchUserBalance,
+  fetchTransactions,
+  fetchHotClaimStatus,
   checkApiHealth,
 };
