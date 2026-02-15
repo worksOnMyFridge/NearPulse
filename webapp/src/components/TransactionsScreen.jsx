@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Clock, ExternalLink } from 'lucide-react';
+import { Clock, ExternalLink, Copy, Info, Globe } from 'lucide-react';
 import { fetchTransactions } from '../services/api';
 import { useTelegram } from '../hooks/useTelegram';
+import Toast from './Toast';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import 'dayjs/locale/ru';
@@ -14,6 +15,8 @@ export default function TransactionsScreen() {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [expandedTx, setExpandedTx] = useState(null);
+  const [toast, setToast] = useState(null);
 
   const displayAddress = address || 'leninjiv23.tg';
 
@@ -65,6 +68,22 @@ export default function TransactionsScreen() {
     );
   }
 
+  // Функция копирования хеша
+  const copyToClipboard = async (hash) => {
+    try {
+      await navigator.clipboard.writeText(hash);
+      setToast('Хеш скопирован!');
+    } catch (err) {
+      console.error('Failed to copy:', err);
+      setToast('Ошибка копирования');
+    }
+  };
+
+  // Функция переключения деталей
+  const toggleDetails = (hash) => {
+    setExpandedTx(expandedTx === hash ? null : hash);
+  };
+
   // Определяем цвет границы и свечение по типу транзакции
   const getBorderStyles = (type) => {
     const styles = {
@@ -80,76 +99,132 @@ export default function TransactionsScreen() {
   };
 
   return (
-    <div className="space-y-3">
-      {transactions.map(tx => (
-        <div 
-          key={tx.hash} 
-          className={`glass-card rounded-xl p-4 ${getBorderStyles(tx.type)} group`}
-        >
-          <div className="flex items-start gap-3">
-            {/* Icon */}
-            <div className="text-2xl mt-0.5 flex-shrink-0">{tx.icon}</div>
-            
-            {/* Main Content */}
-            <div className="flex-1 min-w-0">
-              {/* Description */}
-              <div className="font-semibold text-sm mb-1 text-primary">{tx.description}</div>
+    <>
+      <div className="space-y-3">
+        {transactions.map(tx => (
+          <div 
+            key={tx.hash} 
+            className={`glass-card rounded-xl p-4 ${getBorderStyles(tx.type)} group`}
+          >
+            <div className="flex items-start gap-3">
+              {/* Icon */}
+              <div className="text-2xl mt-0.5 flex-shrink-0">{tx.icon}</div>
               
-              {/* Token Badge - показываем сверху если есть */}
-              {tx.tokenName && (
-                <div className="mb-2 inline-block px-2 py-0.5 bg-purple-500/20 text-purple-400 text-xs rounded-full font-medium border border-purple-500/30">
-                  {tx.tokenName}
-                </div>
-              )}
+              {/* Main Content */}
+              <div className="flex-1 min-w-0">
+                {/* Description */}
+                <div className="font-semibold text-sm mb-1 text-primary">{tx.description}</div>
+                
+                {/* Token Badge - показываем сверху если есть */}
+                {tx.tokenName && (
+                  <div className="mb-2 inline-block px-2 py-0.5 bg-purple-500/20 text-purple-400 text-xs rounded-full font-medium border border-purple-500/30">
+                    {tx.tokenName}
+                  </div>
+                )}
 
-              {/* Amount - показываем только если есть NEAR */}
-              {tx.amount > 0.01 && (
-                <div className="flex items-baseline gap-2 mb-2">
-                  <span className="font-bold text-base text-primary">
-                    {parseFloat(tx.amountFormatted).toFixed(2)} NEAR
-                  </span>
-                  {tx.usdValue && (
-                    <span className="text-xs text-secondary">
-                      ≈ ${tx.usdValue.toFixed(2)}
+                {/* Amount - показываем только если есть NEAR */}
+                {tx.amount > 0.01 && (
+                  <div className="flex items-baseline gap-2 mb-2">
+                    <span className="font-bold text-base text-primary">
+                      {parseFloat(tx.amountFormatted).toFixed(2)} NEAR
                     </span>
-                  )}
-                </div>
-              )}
-              
-              {/* Time and Link */}
-              <div className="flex items-center gap-2 text-xs text-secondary mb-3">
-                <div className="flex items-center gap-1">
+                    {tx.usdValue && (
+                      <span className="text-xs text-secondary">
+                        ≈ ${tx.usdValue.toFixed(2)}
+                      </span>
+                    )}
+                  </div>
+                )}
+                
+                {/* Time */}
+                <div className="flex items-center gap-1 text-xs text-secondary mb-3">
                   <Clock className="w-3 h-3" />
                   <span>{dayjs(tx.timestamp).fromNow()}</span>
                 </div>
-                <span>&bull;</span>
-                <a 
-                  href={`https://nearblocks.io/txns/${tx.hash}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 hover:text-blue-400 transition"
-                >
-                  Explorer <ExternalLink className="w-3 h-3" />
-                </a>
-              </div>
 
-              {/* Action Buttons Placeholder - место под будущие кнопки */}
-              <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                <div className="px-3 py-1.5 glass-subtle rounded-lg text-xs text-secondary cursor-not-allowed">
-                  {/* Placeholder для будущих кнопок действий */}
+                {/* Action Buttons - появляются при hover */}
+                <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all duration-200 animate-fade-in">
+                  {/* Explorer Button */}
+                  <a
+                    href={`https://nearblocks.io/txns/${tx.hash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 glass-subtle rounded-lg text-xs text-secondary hover:text-blue-400 hover:border-blue-400/30 transition-all border border-transparent"
+                    title="Открыть в Explorer"
+                  >
+                    <Globe className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Explorer</span>
+                  </a>
+
+                  {/* Copy Button */}
+                  <button
+                    onClick={() => copyToClipboard(tx.hash)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 glass-subtle rounded-lg text-xs text-secondary hover:text-green-400 hover:border-green-400/30 transition-all border border-transparent"
+                    title="Копировать хеш"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Копировать</span>
+                  </button>
+
+                  {/* Details Button */}
+                  <button
+                    onClick={() => toggleDetails(tx.hash)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 glass-subtle rounded-lg text-xs transition-all border ${
+                      expandedTx === tx.hash
+                        ? 'text-purple-400 border-purple-400/30'
+                        : 'text-secondary hover:text-purple-400 hover:border-purple-400/30 border-transparent'
+                    }`}
+                    title="Показать детали"
+                  >
+                    <Info className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">{expandedTx === tx.hash ? 'Скрыть' : 'Детали'}</span>
+                  </button>
                 </div>
+
+                {/* Expanded Details - разворачивается при клике */}
+                {expandedTx === tx.hash && (
+                  <div className="mt-3 pt-3 border-t border-glass animate-fade-in">
+                    <div className="space-y-2 text-xs">
+                      <div className="flex justify-between items-center">
+                        <span className="text-secondary">Статус:</span>
+                        <span className="text-green-400 font-medium flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 bg-green-400 rounded-full"></span>
+                          Успешно
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-secondary">Gas Fee:</span>
+                        <span className="text-primary font-medium">~0.0001 NEAR</span>
+                      </div>
+                      <div className="flex justify-between items-start">
+                        <span className="text-secondary">Хеш:</span>
+                        <span className="text-primary font-mono text-[10px] break-all max-w-[200px] text-right">
+                          {tx.hash}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
-        </div>
-      ))}
+        ))}
 
-      {/* Show More Button */}
-      {transactions.length >= 10 && (
-        <button className="w-full glass-card rounded-xl py-3 text-sm font-medium text-primary hover:scale-[1.02] transition-transform">
-          Показать еще
-        </button>
+        {/* Show More Button */}
+        {transactions.length >= 10 && (
+          <button className="w-full glass-card rounded-xl py-3 text-sm font-medium text-primary hover:scale-[1.02] transition-transform">
+            Показать еще
+          </button>
+        )}
+      </div>
+
+      {/* Toast Notification */}
+      {toast && (
+        <Toast
+          message={toast}
+          onClose={() => setToast(null)}
+        />
       )}
-    </div>
+    </>
   );
 }
