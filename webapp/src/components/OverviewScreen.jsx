@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Activity, Zap, Sparkles, TrendingUp, BarChart3, PieChart, Wallet, Clock } from 'lucide-react';
+import { Activity, Zap, Sparkles, TrendingUp, BarChart3, PieChart, Wallet, Clock, Info } from 'lucide-react';
 import { analytics } from '../lib/mockData';
 import { fetchHotClaimStatus } from '../services/api';
 import { useTelegram } from '../hooks/useTelegram';
@@ -129,10 +129,10 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
           <button
             key={period.key}
             onClick={() => onPeriodChange(period.key)}
-            className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition ${
+            className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
               selectedPeriod === period.key
-                ? 'bg-blue-500 text-white'
-                : 'bg-white text-gray-600 border border-gray-200 hover:border-blue-300'
+                ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30'
+                : 'glass-card text-primary hover:scale-105'
             }`}
           >
             {period.label}
@@ -140,12 +140,17 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
         ))}
       </div>
 
-      {/* Balance Card - если есть данные */}
+      {/* Balance Card - кликабельная с иконкой info */}
       {balanceData && (
-        <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl p-4 text-white">
-          <div className="flex items-center gap-2 mb-3">
-            <Wallet className="w-5 h-5" />
-            <div className="text-sm opacity-90">Портфель</div>
+        <button className="w-full bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl p-4 text-white glass-card hover:scale-[1.02] transition-transform group text-left">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Wallet className="w-5 h-5" />
+              <div className="text-sm opacity-90 font-medium">Портфель</div>
+            </div>
+            <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+              <Info className="w-4 h-4" />
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -163,31 +168,31 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
               <div className="text-xs opacity-75">токенов</div>
             </div>
           </div>
-        </div>
+        </button>
       )}
 
-      {/* HOT Claim Timer */}
+      {/* HOT Claim Timer - с glassmorphism */}
       {claimStatus && (
-        <div className={`rounded-xl p-4 border-2 ${
+        <div className={`rounded-xl p-4 border-2 transition-all ${
           claimStatus.canClaim 
-            ? 'bg-gradient-to-br from-orange-500 to-red-500 text-white border-orange-600' 
-            : 'bg-white border-gray-200'
+            ? 'bg-gradient-to-br from-orange-500 to-red-500 text-white border-orange-600 shadow-lg shadow-orange-500/30 glow-hot' 
+            : 'glass-card border-glass text-primary'
         }`}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="text-3xl">🔥</div>
+              <div className="text-3xl">{claimStatus.canClaim ? '🔥' : '⏰'}</div>
               <div>
-                <div className={`text-sm font-semibold ${claimStatus.canClaim ? 'text-white' : 'text-gray-900'}`}>
+                <div className={`text-sm font-semibold ${claimStatus.canClaim ? 'text-white' : 'text-primary'}`}>
                   {claimStatus.canClaim ? 'HOT готов к клейму!' : 'Следующий клейм HOT'}
                 </div>
-                <div className={`text-xs ${claimStatus.canClaim ? 'text-white opacity-90' : 'text-gray-500'}`}>
+                <div className={`text-xs ${claimStatus.canClaim ? 'text-white opacity-90' : 'text-secondary'}`}>
                   {claimStatus.canClaim ? 'Откройте бота чтобы получить' : 'Осталось времени'}
                 </div>
               </div>
             </div>
             
             <div className="text-right">
-              <div className={`flex items-center gap-1 ${claimStatus.canClaim ? 'text-white' : 'text-gray-700'}`}>
+              <div className={`flex items-center gap-1 ${claimStatus.canClaim ? 'text-white' : 'text-primary'}`}>
                 {!claimStatus.canClaim && <Clock className="w-4 h-4" />}
                 <div className="text-lg font-bold font-mono">
                   {timeRemaining || '...'}
@@ -201,10 +206,10 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
       {/* Insights */}
       <div className="space-y-2">
         {insights.map((insight, idx) => (
-          <div key={idx} className="bg-white rounded-xl p-4 flex items-start gap-3 border border-gray-100">
+          <div key={idx} className="glass-card rounded-xl p-4 flex items-start gap-3 hover:scale-[1.01] transition-transform">
             <div className="text-2xl">{insight.icon}</div>
             <div className="flex-1">
-              <div className="text-sm font-medium text-gray-900">{insight.text}</div>
+              <div className="text-sm font-medium text-primary">{insight.text}</div>
             </div>
           </div>
         ))}
@@ -212,7 +217,7 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
 
       {/* Main Stats */}
       <div className="grid grid-cols-2 gap-3">
-        <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-4 text-white">
+        <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-4 text-white shadow-lg shadow-blue-500/20 hover:scale-[1.02] transition-transform">
           <div className="flex items-center gap-2 mb-2">
             <Activity className="w-4 h-4 opacity-80" />
             <div className="text-xs opacity-80">Транзакций</div>
@@ -221,7 +226,7 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
           <div className="text-xs opacity-80 mt-1">за период</div>
         </div>
 
-        <div className="bg-gradient-to-br from-orange-500 to-red-500 rounded-xl p-4 text-white">
+        <div className="bg-gradient-to-br from-orange-500 to-red-500 rounded-xl p-4 text-white shadow-lg shadow-orange-500/20 hover:scale-[1.02] transition-transform">
           <div className="flex items-center gap-2 mb-2">
             <Zap className="w-4 h-4 opacity-80" />
             <div className="text-xs opacity-80">Gas расходы</div>
@@ -230,7 +235,7 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
           <div className="text-xs opacity-80 mt-1">NEAR (${data.gasUSD})</div>
         </div>
 
-        <div className="bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl p-4 text-white">
+        <div className="bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl p-4 text-white shadow-lg shadow-purple-500/20 hover:scale-[1.02] transition-transform">
           <div className="flex items-center gap-2 mb-2">
             <Sparkles className="w-4 h-4 opacity-80" />
             <div className="text-xs opacity-80">Контрактов</div>
@@ -239,7 +244,7 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
           <div className="text-xs opacity-80 mt-1">уникальных</div>
         </div>
 
-        <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl p-4 text-white">
+        <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl p-4 text-white shadow-lg shadow-green-500/20 hover:scale-[1.02] transition-transform">
           <div className="flex items-center gap-2 mb-2">
             <TrendingUp className="w-4 h-4 opacity-80" />
             <div className="text-xs opacity-80">Самый активный</div>
@@ -250,33 +255,33 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
       </div>
 
       {/* Activity Chart */}
-      <div className="bg-white rounded-xl p-4 border border-gray-100">
+      <div className="glass-card rounded-xl p-4">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-gray-900">Активность по дням</h3>
-          <BarChart3 className="w-5 h-5 text-gray-400" />
+          <h3 className="font-semibold text-primary">Активность по дням</h3>
+          <BarChart3 className="w-5 h-5 text-secondary" />
         </div>
 
         <div className="flex items-end justify-between gap-2 h-32">
           {data.activityByDay.map((day, idx) => (
             <div key={idx} className="flex-1 flex flex-col items-center gap-2">
-              <div className="w-full bg-gray-100 rounded-t-lg relative" style={{ height: '100%' }}>
+              <div className="w-full bg-glass rounded-t-lg relative" style={{ height: '100%' }}>
                 <div
-                  className="absolute bottom-0 w-full bg-gradient-to-t from-blue-500 to-blue-400 rounded-t-lg transition-all"
+                  className="absolute bottom-0 w-full bg-gradient-to-t from-blue-500 to-blue-400 rounded-t-lg transition-all hover:from-blue-400 hover:to-blue-300"
                   style={{ height: `${(day.txs / maxActivity) * 100}%` }}
                 />
               </div>
-              <div className="text-xs text-gray-500 font-medium">{day.day}</div>
-              <div className="text-xs font-bold text-gray-700">{day.txs}</div>
+              <div className="text-xs text-secondary font-medium">{day.day}</div>
+              <div className="text-xs font-bold text-primary">{day.txs}</div>
             </div>
           ))}
         </div>
       </div>
 
       {/* Category Breakdown */}
-      <div className="bg-white rounded-xl p-4 border border-gray-100">
+      <div className="glass-card rounded-xl p-4">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-gray-900">По категориям</h3>
-          <PieChart className="w-5 h-5 text-gray-400" />
+          <h3 className="font-semibold text-primary">По категориям</h3>
+          <PieChart className="w-5 h-5 text-secondary" />
         </div>
 
         <div className="space-y-3">
@@ -284,12 +289,12 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
             <div key={key}>
               <div className="flex items-center justify-between mb-1">
                 <div className="flex items-center gap-2">
-                  <div className="text-sm font-medium">{categoryLabels[key]}</div>
-                  <div className="text-xs text-gray-500">{val.count} txs</div>
+                  <div className="text-sm font-medium text-primary">{categoryLabels[key]}</div>
+                  <div className="text-xs text-secondary">{val.count} txs</div>
                 </div>
-                <div className="text-sm font-semibold text-gray-900">{val.percent}%</div>
+                <div className="text-sm font-semibold text-primary">{val.percent}%</div>
               </div>
-              <div className="w-full bg-gray-100 rounded-full h-2">
+              <div className="w-full bg-glass rounded-full h-2">
                 <div
                   className={`h-2 rounded-full transition-all ${categoryColors[key]}`}
                   style={{ width: `${val.percent}%` }}
@@ -301,22 +306,22 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
       </div>
 
       {/* Top Contracts */}
-      <div className="bg-white rounded-xl p-4 border border-gray-100">
-        <h3 className="font-semibold text-gray-900 mb-3">Топ протоколы</h3>
+      <div className="glass-card rounded-xl p-4">
+        <h3 className="font-semibold text-primary mb-3">Топ протоколы</h3>
 
         <div className="space-y-2">
           {data.topContracts.map((contract, idx) => (
-            <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition cursor-pointer">
+            <div key={idx} className="flex items-center justify-between p-3 glass-subtle rounded-lg hover:bg-glass-hover transition cursor-pointer">
               <div className="flex items-center gap-3">
                 <div className="text-2xl">{contract.icon}</div>
                 <div>
-                  <div className="font-medium text-sm">{contract.name}</div>
-                  <div className="text-xs text-gray-500">{contract.category}</div>
+                  <div className="font-medium text-sm text-primary">{contract.name}</div>
+                  <div className="text-xs text-secondary">{contract.category}</div>
                 </div>
               </div>
               <div className="text-right">
-                <div className="text-sm font-semibold">{contract.txs} txs</div>
-                <div className="text-xs text-gray-500">{contract.gas.toFixed(3)} N gas</div>
+                <div className="text-sm font-semibold text-primary">{contract.txs} txs</div>
+                <div className="text-xs text-secondary">{contract.gas.toFixed(3)} N gas</div>
               </div>
             </div>
           ))}

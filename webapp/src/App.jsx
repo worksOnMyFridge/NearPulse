@@ -52,7 +52,7 @@ export default function App() {
   // Показываем загрузку
   if (loading) {
     return (
-      <div className="max-w-2xl mx-auto min-h-screen bg-gray-50">
+      <div className="max-w-2xl mx-auto min-h-screen bg-primary">
         <Header
           address={displayAddress}
           currentScreen={currentScreen}
@@ -68,19 +68,19 @@ export default function App() {
   // Показываем ошибку
   if (error) {
     return (
-      <div className="max-w-2xl mx-auto min-h-screen bg-gray-50">
+      <div className="max-w-2xl mx-auto min-h-screen bg-primary">
         <Header
           address={displayAddress}
           currentScreen={currentScreen}
           onScreenChange={setCurrentScreen}
         />
         <div className="p-4 pb-6">
-          <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-center">
+          <div className="glass-card rounded-xl p-4 text-center border-red-500/30">
             <div className="text-2xl mb-2">⚠️</div>
-            <div className="text-red-800 font-medium mb-1">Ошибка загрузки данных</div>
-            <div className="text-red-600 text-sm">{error}</div>
-            <div className="text-xs text-red-500 mt-2">
-              Проверьте что API запущен: npm run api
+            <div className="text-primary font-medium mb-1">Ошибка загрузки данных</div>
+            <div className="text-secondary text-sm">{error}</div>
+            <div className="text-xs text-tertiary mt-2">
+              Проверьте что API запущен
             </div>
           </div>
         </div>
@@ -89,14 +89,14 @@ export default function App() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto min-h-screen bg-gray-50">
+    <div className="max-w-2xl mx-auto min-h-screen bg-primary">
       <Header
         address={displayAddress}
         currentScreen={currentScreen}
         onScreenChange={setCurrentScreen}
       />
 
-      <div className="p-4 pb-6">
+      <div className="p-4 pb-6 bg-secondary">
         {currentScreen === 'overview' && (
           <OverviewScreen
             selectedPeriod={selectedPeriod}

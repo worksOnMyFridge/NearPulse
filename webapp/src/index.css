@@ -1,17 +1,122 @@
 @import "tailwindcss";
 
-body {
-  margin: 0;
-  padding: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  background-color: var(--tg-theme-bg-color, #f5f5f5);
-  color: var(--tg-theme-text-color, #000);
+/* ========================================
+   CSS VARIABLES - THEME SYSTEM
+   ======================================== */
+
+:root[data-theme="dark"] {
+  /* Background Colors */
+  --bg-primary: #0f0f1a;
+  --bg-secondary: #1a1a2e;
+  --bg-card: rgba(26, 26, 46, 0.7);
+  --bg-card-hover: rgba(30, 30, 50, 0.85);
+  --bg-glass: rgba(255, 255, 255, 0.05);
+  --bg-glass-hover: rgba(255, 255, 255, 0.08);
+  
+  /* Text Colors */
+  --text-primary: #ffffff;
+  --text-secondary: #a0a0b8;
+  --text-tertiary: #6b6b7e;
+  
+  /* Border Colors */
+  --border-primary: rgba(255, 255, 255, 0.1);
+  --border-glass: rgba(255, 255, 255, 0.15);
+  
+  /* Card Effects */
+  --card-backdrop-blur: 20px;
+  --card-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  --card-shadow-hover: 0 12px 48px rgba(0, 0, 0, 0.4);
+  
+  /* Accent Colors */
+  --accent-hot: #ff6b35;
+  --accent-hot-glow: rgba(255, 107, 53, 0.2);
+  --accent-claim: #ffd93d;
+  --accent-swap: #4a90e2;
+  --accent-in: #10b981;
+  --accent-out: #ef4444;
 }
+
+:root[data-theme="light"] {
+  /* Background Colors */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8f9fa;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f8f9fa;
+  --bg-glass: rgba(255, 255, 255, 0.9);
+  --bg-glass-hover: rgba(248, 249, 250, 1);
+  
+  /* Text Colors */
+  --text-primary: #1a1a2e;
+  --text-secondary: #4b5563;
+  --text-tertiary: #9ca3af;
+  
+  /* Border Colors */
+  --border-primary: #e5e7eb;
+  --border-glass: #d1d5db;
+  
+  /* Card Effects */
+  --card-backdrop-blur: 0px;
+  --card-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  --card-shadow-hover: 0 4px 16px rgba(0, 0, 0, 0.12);
+  
+  /* Accent Colors */
+  --accent-hot: #ff6b35;
+  --accent-hot-glow: rgba(255, 107, 53, 0.15);
+  --accent-claim: #f59e0b;
+  --accent-swap: #3b82f6;
+  --accent-in: #10b981;
+  --accent-out: #ef4444;
+}
+
+/* ========================================
+   BASE STYLES
+   ======================================== */
 
 * {
   box-sizing: border-box;
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
 }
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+}
+
+/* ========================================
+   GLASSMORPHISM EFFECTS
+   ======================================== */
+
+.glass-card {
+  background: var(--bg-glass);
+  backdrop-filter: blur(var(--card-backdrop-blur));
+  -webkit-backdrop-filter: blur(var(--card-backdrop-blur));
+  border: 1px solid var(--border-glass);
+  box-shadow: var(--card-shadow);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-card:hover {
+  background: var(--bg-glass-hover);
+  box-shadow: var(--card-shadow-hover);
+  transform: translateY(-2px);
+}
+
+.glass-subtle {
+  background: var(--bg-glass);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--border-glass);
+}
+
+/* ========================================
+   ANIMATIONS
+   ======================================== */
 
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; }
@@ -21,3 +126,64 @@ body {
 .animate-pulse-dot {
   animation: pulse-dot 2s ease-in-out infinite;
 }
+
+@keyframes shimmer {
+  0% { background-position: -1000px 0; }
+  100% { background-position: 1000px 0; }
+}
+
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--bg-glass),
+    transparent
+  );
+  background-size: 1000px 100%;
+  animation: shimmer 2s infinite;
+}
+
+@keyframes glow-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 20px var(--accent-hot-glow); }
+  50% { opacity: 0.8; box-shadow: 0 0 30px var(--accent-hot-glow); }
+}
+
+.glow-hot {
+  animation: glow-pulse 3s ease-in-out infinite;
+}
+
+/* ========================================
+   SCROLLBAR (Dark Theme)
+   ======================================== */
+
+:root[data-theme="dark"] ::-webkit-scrollbar {
+  width: 8px;
+}
+
+:root[data-theme="dark"] ::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: var(--border-glass);
+  border-radius: 4px;
+}
+
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* ========================================
+   UTILITY CLASSES
+   ======================================== */
+
+.text-primary { color: var(--text-primary); }
+.text-secondary { color: var(--text-secondary); }
+.text-tertiary { color: var(--text-tertiary); }
+
+.bg-primary { background-color: var(--bg-primary); }
+.bg-secondary { background-color: var(--bg-secondary); }
+.bg-card { background-color: var(--bg-card); }
+
+.border-primary { border-color: var(--border-primary); }
+.border-glass { border-color: var(--border-glass); }
