@@ -541,10 +541,13 @@ async function getTransactionDetails(txHash) {
  * @returns {Promise<number>} Цена NEAR в USD
  */
 async function getNearPrice() {
+  // Пробуем несколько источников цены NEAR
+  
+  // Источник 1: CoinGecko (бесплатный, но может быть ограничен)
   try {
     const url = 'https://api.coingecko.com/api/v3/simple/price';
     const response = await axios.get(url, {
-      timeout: API_TIMEOUT,
+      timeout: 5000,
       params: {
         ids: 'near',
         vs_currencies: 'usd',
@@ -552,16 +555,50 @@ async function getNearPrice() {
     });
 
     const price = response.data?.near?.usd;
-    if (!price || typeof price !== 'number') {
-      throw new Error('Некорректный формат ответа от CoinGecko');
+    if (price && typeof price === 'number') {
+      console.log(`💵 Текущий курс NEAR: $${price.toFixed(2)} (CoinGecko)`);
+      return price;
     }
-
-    console.log(`💵 Текущий курс NEAR: $${price.toFixed(2)}`);
-    return price;
   } catch (error) {
-    console.error('getNearPrice error:', error.message);
-    throw new Error('Не удалось получить курс NEAR. Попробуйте позже.');
+    console.warn('CoinGecko недоступен:', error.message);
   }
+
+  // Источник 2: Ref Finance (DEX на NEAR, надежный источник)
+  try {
+    const response = await axios.get('https://indexer.ref.finance/get-token-price', {
+      timeout: 5000,
+      params: {
+        token_id: 'wrap.near',
+      },
+    });
+
+    const price = parseFloat(response.data?.price);
+    if (price && !isNaN(price)) {
+      console.log(`💵 Текущий курс NEAR: $${price.toFixed(2)} (Ref Finance)`);
+      return price;
+    }
+  } catch (error) {
+    console.warn('Ref Finance недоступен:', error.message);
+  }
+
+  // Источник 3: Nearblocks (запасной вариант)
+  try {
+    const response = await axios.get('https://api.nearblocks.io/v1/stats', {
+      timeout: 5000,
+    });
+
+    const price = parseFloat(response.data?.stats?.[0]?.near_price);
+    if (price && !isNaN(price)) {
+      console.log(`💵 Текущий курс NEAR: $${price.toFixed(2)} (Nearblocks)`);
+      return price;
+    }
+  } catch (error) {
+    console.warn('Nearblocks недоступен:', error.message);
+  }
+
+  // Если все источники недоступны
+  console.error('❌ Не удалось получить курс NEAR ни из одного источника');
+  throw new Error('Не удалось получить курс NEAR');
 }
 
 // Маппинг контрактов NEAR токенов на decimals
