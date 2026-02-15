@@ -31,7 +31,7 @@ app.use(cors({
     if (allowedOrigins.indexOf(origin) !== -1 || allowedOrigins.some(allowed => origin?.startsWith(allowed))) {
       callback(null, true);
     } else {
-      console.log(`[CORS] Blocked request from origin: ${origin}`);
+      // CORS заблокирован (не логируем для приватности)
       callback(new Error('Not allowed by CORS'));
     }
   },
@@ -41,14 +41,6 @@ app.use(cors({
 // JSON parser
 app.use(express.json());
 
-// Логирование запросов с деталями
-app.use((req, res, next) => {
-  console.log(`[API] ${req.method} ${req.path}`);
-  console.log(`[API] Full URL: ${req.protocol}://${req.get('host')}${req.originalUrl}`);
-  console.log(`[API] Headers: Origin=${req.get('origin')}, Referer=${req.get('referer')}`);
-  next();
-});
-
 /**
  * GET /api/balance/:address и /balance/:address
  * Возвращает полный баланс аккаунта: NEAR, staking, HOT, токены
@@ -57,8 +49,6 @@ app.use((req, res, next) => {
 app.get(['/api/balance/:address', '/balance/:address'], async (req, res) => {
   try {
     const { address } = req.params;
-    
-    console.log(`[API] Запрос баланса для ${address}`);
     
     // Параллельно получаем все данные
     const [nearData, stakingBalance, hotBalance, nearPrice, categorizedTokens] = await Promise.all([
@@ -130,8 +120,6 @@ app.get(['/api/transactions/:address', '/transactions/:address'], async (req, re
   try {
     const { address } = req.params;
     const limit = parseInt(req.query.limit) || 10; // По умолчанию 10 транзакций
-    
-    console.log(`[API] Запрос транзакций для ${address}, limit: ${limit}`);
     
     const [txns, nearPrice] = await Promise.all([
       getTransactionHistory(address),
@@ -280,8 +268,6 @@ app.get(['/api/transactions/:address', '/transactions/:address'], async (req, re
 app.get(['/api/hot-claim/:address', '/hot-claim/:address'], async (req, res) => {
   try {
     const { address } = req.params;
-    
-    console.log(`[API] Запрос статуса HOT для ${address}`);
     
     const claimStatus = await getHotClaimStatus(address);
     

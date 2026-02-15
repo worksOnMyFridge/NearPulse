@@ -75,7 +75,10 @@ function saveBalanceSnapshot(telegramId, address, nearBalance, hotBalance) {
 
   balanceHistory.set(telegramId, filtered);
 
-  console.log(`💾 Сохранён снимок баланса для ${address}: ${nearBalance.toFixed(2)} NEAR, ${hotBalance.toFixed(2)} HOT`);
+  // Логирование только в dev режиме
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`💾 [DEV] Сохранён снимок баланса для ${address}: ${nearBalance.toFixed(2)} NEAR, ${hotBalance.toFixed(2)} HOT`);
+  }
 }
 
 /**
