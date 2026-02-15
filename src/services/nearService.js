@@ -2,6 +2,12 @@ const axios = require('axios');
 const { NEARBLOCKS_API_URL, PIKESPEAK_API_URL, INTEAR_API_URL, API_TIMEOUT } = require('../config/constants');
 
 const PIKESPEAK_API_KEY = process.env.PIKESPEAK_API_KEY;
+const NEARBLOCKS_API_KEY = process.env.NEARBLOCKS_API_KEY;
+
+// Заголовки для Nearblocks API (с ключом для избежания 429)
+const nearblocksHeaders = NEARBLOCKS_API_KEY
+  ? { Authorization: `Bearer ${NEARBLOCKS_API_KEY}` }
+  : {};
 
 const YOCTO_NEAR = 1e24;
 const NEAR_RPC_URL = 'https://rpc.mainnet.near.org';
@@ -68,7 +74,7 @@ async function getBalance(address) {
 async function getTokenBalance(address, tokenId = 'game.hot.tg') {
   try {
     const url = `${NEARBLOCKS_API_URL}/account/${address}/inventory`;
-    const response = await axios.get(url, { timeout: API_TIMEOUT });
+    const response = await axios.get(url, { timeout: API_TIMEOUT, headers: nearblocksHeaders });
     const token = response.data.inventory.fts.find((t) => t.contract === tokenId);
     return token ? parseFloat(token.amount) / 1e6 : 0;
   } catch (error) {
@@ -85,7 +91,7 @@ async function getTokenBalance(address, tokenId = 'game.hot.tg') {
 async function getAllTokens(address) {
   try {
     const url = `${NEARBLOCKS_API_URL}/account/${address}/inventory`;
-    const response = await axios.get(url, { timeout: API_TIMEOUT });
+    const response = await axios.get(url, { timeout: API_TIMEOUT, headers: nearblocksHeaders });
     
     const tokens = response.data.inventory?.fts ?? [];
     
@@ -363,7 +369,7 @@ async function getStakingBalance(address) {
 
   try {
     const url = `${NEARBLOCKS_API_URL}/kitwallet/staking-deposits/${encoded}`;
-    const response = await axios.get(url, { timeout: API_TIMEOUT });
+    const response = await axios.get(url, { timeout: API_TIMEOUT, headers: nearblocksHeaders });
 
     const data = response.data;
     const deposits = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : data?.deposits ?? []);
@@ -521,9 +527,15 @@ async function rateLimitDelay() {
 
 async function getTransactionHistory(address, limit = 100) {
   await rateLimitDelay();
-  // ВРЕМЕННО: Возвращаем пустой массив из-за Nearblocks rate limit 429
-  console.log(`⚠️ [TX] История транзакций временно отключена (Nearblocks 429)`);
-  return [];
+  try {
+    const encoded = encodeURIComponent(address);
+    const url = `${NEARBLOCKS_API_URL}/account/${encoded}/txns?limit=${limit}&order=desc`;
+    const response = await axios.get(url, { timeout: API_TIMEOUT, headers: nearblocksHeaders });
+    return response.data?.txns || [];
+  } catch (error) {
+    console.error('[TX] getTransactionHistory error:', error.message);
+    return [];
+  }
 }
 
 /**
@@ -535,7 +547,7 @@ async function getTransactionDetails(txHash) {
   await rateLimitDelay();
   try {
     const url = `${NEARBLOCKS_API_URL}/txns/${txHash}`;
-    const response = await axios.get(url, { timeout: API_TIMEOUT });
+    const response = await axios.get(url, { timeout: API_TIMEOUT, headers: nearblocksHeaders });
     return response.data?.receipts || [];
   } catch (error) {
     console.error('getTransactionDetails error:', error.message);
@@ -854,7 +866,7 @@ async function getRefFinancePrices(contracts) {
   try {
     // Ref Finance Indexer API для получения цен
     const url = 'https://indexer.ref.finance/list-token-price';
-    const response = await axios.get(url, { timeout: API_TIMEOUT });
+    const response = await axios.get(url, { timeout: API_TIMEOUT, headers: nearblocksHeaders });
     
     const refPrices = response.data || {};
     
@@ -925,7 +937,7 @@ async function getIntearPrices(contracts) {
   try {
     // Intear Token Indexer API - совместим с Ref Finance, но покрывает больше токенов
     const url = `${INTEAR_API_URL}/list-token-price`;
-    const response = await axios.get(url, { timeout: API_TIMEOUT });
+    const response = await axios.get(url, { timeout: API_TIMEOUT, headers: nearblocksHeaders });
     
     const intearPrices = response.data || {};
     
@@ -981,14 +993,143 @@ async function getIntearPrices(contracts) {
  * @param {string} period - Период: 'week' (7 дней), 'month' (30 дней), 'all' (90 дней)
  * @returns {Promise<Object>} Аналитика с газом, транзакциями, активностью по дням и протоколам
  */
-/**
- * Получить аналитику транзакций за период
- * ВРЕМЕННО ОТКЛЮЧЕНО из-за Nearblocks 429
- */
 async function getAnalytics(address, period = 'week') {
   await rateLimitDelay();
-  console.log(`⚠️ [Analytics] Аналитика временно отключена (Nearblocks 429)`);
-  return getEmptyAnalytics(period);
+  try {
+    const txns = await getTransactionHistory(address);
+    if (!txns || txns.length === 0) return getEmptyAnalytics(period);
+
+    const nearPrice = await getNearPrice().catch(() => null);
+
+    // Фильтруем по периоду
+    const daysMap = { week: 7, month: 30, all: 90 };
+    const daysCount = daysMap[period] || 7;
+    const cutoff = Date.now() - daysCount * 24 * 60 * 60 * 1000;
+
+    const filtered = txns.filter(tx => {
+      const ts = parseInt(tx.block_timestamp);
+      const ms = ts > 1e15 ? Math.floor(ts / 1e6) : ts;
+      return ms >= cutoff;
+    });
+
+    if (filtered.length === 0) return getEmptyAnalytics(period);
+
+    // Группируем по hash
+    const grouped = {};
+    filtered.forEach(tx => {
+      const hash = tx.transaction_hash;
+      if (!grouped[hash]) grouped[hash] = [];
+      grouped[hash].push(tx);
+    });
+
+    let totalGas = 0;
+    const contractCounts = {};
+    const categories = { gaming: 0, defi: 0, transfers: 0, nft: 0 };
+    const contractGas = {};
+
+    // Активность по дням
+    const dayNames = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+    const dayBuckets = {};
+    for (let i = daysCount - 1; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+      const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+      const label = period === 'all' || period === 'month'
+        ? `${d.getDate()}/${d.getMonth() + 1}`
+        : dayNames[d.getDay()];
+      dayBuckets[key] = { day: label, txs: 0 };
+    }
+
+    Object.values(grouped).forEach(group => {
+      const first = group[0];
+      const receiver = first.receiver_account_id || '';
+      const gas = group.reduce((sum, tx) => {
+        const g = tx.outcomes_agg?.transaction_fee || tx.receipt_conversion_gas_burnt || 0;
+        return sum + parseFloat(g) / 1e24;
+      }, 0);
+      totalGas += gas;
+
+      contractCounts[receiver] = (contractCounts[receiver] || 0) + 1;
+      contractGas[receiver] = (contractGas[receiver] || 0) + gas;
+
+      // Категоризация
+      if (receiver.includes('hot.tg') || receiver.includes('harvest-moon') || receiver.includes('game')) {
+        categories.gaming++;
+      } else if (receiver.includes('ref-finance') || receiver.includes('rhea') || receiver.includes('burrow') || receiver.includes('meta-pool')) {
+        categories.defi++;
+      } else if (receiver.includes('nft') || receiver.includes('paras') || receiver.includes('mintbase')) {
+        categories.nft++;
+      } else {
+        categories.transfers++;
+      }
+
+      // Активность по дням
+      const ts = parseInt(first.block_timestamp);
+      const ms = ts > 1e15 ? Math.floor(ts / 1e6) : ts;
+      const d = new Date(ms);
+      const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+      if (dayBuckets[key]) dayBuckets[key].txs++;
+    });
+
+    const totalTxs = Object.keys(grouped).length;
+    const uniqueContracts = Object.keys(contractCounts).length;
+
+    // Топ контракты
+    const knownNames = {
+      'game.hot.tg': { name: 'HOT Protocol', icon: '🔥', category: 'Gaming' },
+      'v2.ref-finance.near': { name: 'Ref Finance', icon: '🔄', category: 'DeFi' },
+      'token.burrow.near': { name: 'Burrow', icon: '🏦', category: 'DeFi' },
+      'wrap.near': { name: 'wNEAR', icon: '📦', category: 'DeFi' },
+    };
+
+    const topContracts = Object.entries(contractCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([contract, txs]) => {
+        const known = knownNames[contract];
+        const shortName = known?.name || (contract.length > 20 ? contract.substring(0, 17) + '...' : contract);
+        return {
+          name: shortName,
+          icon: known?.icon || '📝',
+          category: known?.category || 'Other',
+          txs,
+          gas: contractGas[contract] || 0,
+        };
+      });
+
+    const mostActive = topContracts.length > 0 ? topContracts[0].name : 'N/A';
+
+    // Проценты категорий
+    const breakdown = {};
+    for (const [key, count] of Object.entries(categories)) {
+      breakdown[key] = {
+        count,
+        percent: totalTxs > 0 ? Math.round((count / totalTxs) * 100) : 0,
+        usd: 0,
+      };
+    }
+
+    // Инсайты
+    const insights = [];
+    if (totalTxs > 50) insights.push({ type: 'success', text: `Очень активный кошелёк! ${totalTxs} транзакций`, icon: '🚀' });
+    else if (totalTxs > 10) insights.push({ type: 'info', text: `${totalTxs} транзакций за период`, icon: '📊' });
+    if (categories.defi > categories.gaming) insights.push({ type: 'info', text: 'Активный DeFi пользователь', icon: '💰' });
+    if (categories.gaming > 0) insights.push({ type: 'success', text: `${categories.gaming} gaming-транзакций (HOT, MOON)`, icon: '🕹' });
+
+    return {
+      totalTxs,
+      gasSpent: totalGas,
+      gasUSD: nearPrice ? (totalGas * nearPrice).toFixed(2) : '0.00',
+      uniqueContracts,
+      mostActive,
+      insights,
+      breakdown,
+      topContracts,
+      activityByDay: Object.values(dayBuckets),
+    };
+  } catch (error) {
+    console.error('[Analytics] getAnalytics error:', error.message);
+    return getEmptyAnalytics(period);
+  }
 }
 
 /**
