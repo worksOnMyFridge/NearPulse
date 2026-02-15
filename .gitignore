@@ -33,6 +33,15 @@ tmp/
 temp/
 *.tmp
 
+# SQLite database
+data/
+
 # API keys backup (если будут)
 *.key
 secrets/
+
+# Claude Code
+.claude/
+
+# Output files
+output.txt
