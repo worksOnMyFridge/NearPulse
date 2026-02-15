@@ -716,46 +716,47 @@ async function runHotClaimMonitor() {
   }
 }
 
-async function launchBotWithRetry(maxRetries = 5) {
+async function launchBotInBackground() {
+  const maxRetries = 10;
+  const baseDelay = 5000; // 5 секунд между попытками
+
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
+      // Принудительно сбрасываем webhook перед запуском
+      await bot.telegram.deleteWebhook({ drop_pending_updates: true });
+      await new Promise(r => setTimeout(r, 1000));
       await bot.launch({ dropPendingUpdates: true });
-      console.log('✅ NearPulse bot started successfully');
+      console.log(`✅ NearPulse bot started successfully (attempt ${attempt})`);
+
+      cron.schedule('*/15 * * * *', runHotClaimMonitor);
+      console.log('⏰ HOT Claim Monitor: каждые 15 мин');
+      setTimeout(runHotClaimMonitor, 10000);
       return;
     } catch (error) {
       if (error.message?.includes('409') && attempt < maxRetries) {
-        const delay = attempt * 3000;
+        const delay = baseDelay * attempt;
         console.warn(`⚠️ Bot conflict (409), retry ${attempt}/${maxRetries} in ${delay / 1000}s...`);
         await new Promise(r => setTimeout(r, delay));
       } else {
-        throw error;
+        console.error(`❌ Bot launch failed after ${attempt} attempts:`, error.message);
+        return; // Не крашим процесс — API продолжает работать
       }
     }
   }
 }
 
 async function main() {
-  try {
-    getDb();
+  getDb();
 
-    // Запускаем Express API для webapp
-    // Railway назначает PORT автоматически — обязательно слушать его
-    const apiApp = require('./api');
-    const API_PORT = process.env.PORT || process.env.API_PORT || 3001;
-    apiApp.listen(API_PORT, '0.0.0.0', () => {
-      console.log(`🚀 NearPulse API запущен на 0.0.0.0:${API_PORT}`);
-    });
+  // 1. Запускаем Express API СРАЗУ — Railway должен видеть порт
+  const apiApp = require('./api');
+  const API_PORT = process.env.PORT || process.env.API_PORT || 3001;
+  apiApp.listen(API_PORT, '0.0.0.0', () => {
+    console.log(`🚀 NearPulse API запущен на 0.0.0.0:${API_PORT}`);
+  });
 
-    await launchBotWithRetry();
-
-    cron.schedule('*/15 * * * *', runHotClaimMonitor);
-    console.log('⏰ HOT Claim Monitor: каждые 15 мин (уведомление за 15 мин до клейма)');
-
-    setTimeout(runHotClaimMonitor, 10000);
-  } catch (error) {
-    console.error('Ошибка запуска бота:', error.message);
-    process.exit(1);
-  }
+  // 2. Запускаем бота в фоне — не блокируем процесс, не крашим при ошибке
+  launchBotInBackground();
 }
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
