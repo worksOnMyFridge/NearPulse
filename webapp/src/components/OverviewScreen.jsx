@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Activity, Zap, Sparkles, TrendingUp, BarChart3, PieChart, Wallet, Clock, Info, Image } from 'lucide-react';
-import { fetchHotClaimStatus, fetchAnalytics, fetchNFTs } from '../services/api';
+import { fetchHotClaimStatus, fetchAnalytics } from '../services/api';
 import { useTelegram } from '../hooks/useTelegram';
 
 export default function OverviewScreen({ selectedPeriod, onPeriodChange, balanceData }) {
@@ -9,8 +9,9 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
   const [timeRemaining, setTimeRemaining] = useState('');
   const [data, setData] = useState(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
-  const [nfts, setNfts] = useState(null);
-  const [nftsLoading, setNftsLoading] = useState(true);
+  // NFT state удалён - больше не используется
+  // const [nfts, setNfts] = useState(null);
+  // const [nftsLoading, setNftsLoading] = useState(true);
   
   const displayAddress = address || 'leninjiv23.tg';
 
