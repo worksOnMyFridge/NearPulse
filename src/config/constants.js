@@ -5,7 +5,7 @@
 const NEARBLOCKS_API_URL = 'https://api.nearblocks.io/v1';
 const PIKESPEAK_API_URL = 'https://api.pikespeak.ai';
 const INTEAR_API_URL = 'https://prices.intear.tech'; // Intear Token Indexer (RHEA Finance + все токены)
-const API_TIMEOUT = 10000; // 10 секунд
+const API_TIMEOUT = 30000; // 30 секунд (увеличено для стабильности)
 const MAX_TRANSACTIONS = 50;
 
 module.exports = {

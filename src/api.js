@@ -17,6 +17,13 @@ const {
 const app = express();
 const PORT = process.env.API_PORT || 3001;
 
+// Увеличиваем таймауты для Railway
+app.use((req, res, next) => {
+  req.setTimeout(60000); // 60 секунд
+  res.setTimeout(60000);
+  next();
+});
+
 // CORS - разрешаем запросы с фронтенда
 const allowedOrigins = [
   'http://localhost:5173',
