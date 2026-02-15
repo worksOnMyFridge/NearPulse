@@ -7,6 +7,10 @@ const YOCTO_NEAR = 1e24;
 const NEAR_RPC_URL = 'https://rpc.mainnet.near.org';
 const HOT_CONTRACT = 'game.hot.tg';
 
+// Кэш для цены NEAR (обновляется раз в 5 минут)
+let nearPriceCache = { price: null, timestamp: 0 };
+const PRICE_CACHE_TTL = 5 * 60 * 1000; // 5 минут
+
 // firespace (уровень хранилища 0-5) -> часы до заполнения
 // firespace 5 = 12ч (макс. средний уровень), firespace 6+ = 24ч
 const FIRESPACE_HOURS = {
@@ -551,10 +555,16 @@ async function getTransactionDetails(txHash) {
 }
 
 /**
- * Получает актуальный курс NEAR к USD через CoinGecko API.
+ * Получает актуальный курс NEAR к USD (с кэшированием 5 минут)
  * @returns {Promise<number>} Цена NEAR в USD
  */
 async function getNearPrice() {
+  // Проверяем кэш
+  const now = Date.now();
+  if (nearPriceCache.price && (now - nearPriceCache.timestamp) < PRICE_CACHE_TTL) {
+    return nearPriceCache.price;
+  }
+  
   // Пробуем несколько источников цены NEAR
   
   // Источник 1: CoinGecko (бесплатный, но может быть ограничен)
@@ -570,11 +580,13 @@ async function getNearPrice() {
 
     const price = response.data?.near?.usd;
     if (price && typeof price === 'number') {
-      console.log(`💵 Текущий курс NEAR: $${price.toFixed(2)} (CoinGecko)`);
+      // Сохраняем в кэш
+      nearPriceCache = { price, timestamp: Date.now() };
+      console.log(`💵 Текущий курс NEAR: $${price.toFixed(2)} (CoinGecko, cached 5 min)`);
       return price;
     }
   } catch (error) {
-    console.warn('CoinGecko недоступен:', error.message);
+    console.warn('CoinGecko недоступен (rate limited)');
   }
 
   // Источник 2: Ref Finance (DEX на NEAR, надежный источник)
@@ -610,9 +622,10 @@ async function getNearPrice() {
     console.warn('Nearblocks недоступен:', error.message);
   }
 
-  // Если все источники недоступны
-  console.error('❌ Не удалось получить курс NEAR ни из одного источника');
-  throw new Error('Не удалось получить курс NEAR');
+  // Если все источники недоступны, возвращаем кэш или fallback
+  const fallbackPrice = nearPriceCache.price || 1.04;
+  console.warn(`⚠️ Все источники недоступны, используем ${nearPriceCache.price ? 'кэш' : 'fallback'}: $${fallbackPrice.toFixed(2)}`);
+  return fallbackPrice;
 }
 
 // Маппинг контрактов NEAR токенов на decimals

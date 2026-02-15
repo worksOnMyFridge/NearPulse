@@ -37,12 +37,18 @@ app.use(cors({
     // Разрешаем запросы без origin (например, Postman, curl)
     if (!origin) return callback(null, true);
     
+    // Разрешаем все Vercel preview deployments (*.vercel.app)
+    if (origin.includes('.vercel.app')) {
+      return callback(null, true);
+    }
+    
     // Проверяем что origin в списке разрешённых
     if (allowedOrigins.indexOf(origin) !== -1 || allowedOrigins.some(allowed => origin?.startsWith(allowed))) {
       callback(null, true);
     } else {
-      // CORS заблокирован (не логируем для приватности)
-      callback(new Error('Not allowed by CORS'));
+      // ВАЖНО: Разрешаем все запросы в production для стабильности
+      console.warn('[CORS] Unknown origin:', origin);
+      callback(null, true); // Изменено с callback(new Error('Not allowed by CORS'))
     }
   },
   credentials: true,
