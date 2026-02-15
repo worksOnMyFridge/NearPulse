@@ -721,10 +721,11 @@ async function main() {
     getDb();
 
     // Запускаем Express API для webapp
+    // Railway назначает PORT автоматически — обязательно слушать его
     const apiApp = require('./api');
-    const API_PORT = process.env.API_PORT || process.env.PORT || 3001;
-    apiApp.listen(API_PORT, () => {
-      console.log(`🚀 NearPulse API запущен на порту ${API_PORT}`);
+    const API_PORT = process.env.PORT || process.env.API_PORT || 3001;
+    apiApp.listen(API_PORT, '0.0.0.0', () => {
+      console.log(`🚀 NearPulse API запущен на 0.0.0.0:${API_PORT}`);
     });
 
     await bot.launch();
