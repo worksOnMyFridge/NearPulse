@@ -46,11 +46,17 @@ export default function GalleryScreen() {
     const groups = {};
     
     nftList.forEach(nft => {
-      const collection = nft.collection || nft.contract;
+      // Используем collection_id если есть, иначе contract
+      const collection = nft.collection_id || nft.collection || nft.contract;
       if (!groups[collection]) {
-        groups[collection] = [];
+        groups[collection] = {
+          id: collection,
+          nfts: [],
+          count: 0,
+        };
       }
-      groups[collection].push(nft);
+      groups[collection].nfts.push(nft);
+      groups[collection].count++;
     });
     
     return groups;
@@ -82,6 +88,10 @@ export default function GalleryScreen() {
   const filteredNFTs = getFilteredNFTs();
   const allDisplayNFTs = [...filteredNFTs.wallet, ...filteredNFTs.hotStaked];
   const groupedCollections = groupByCollection(allDisplayNFTs);
+  
+  // Сортируем коллекции по количеству NFT (самые большие сверху)
+  const sortedCollections = Object.entries(groupedCollections)
+    .sort(([, a], [, b]) => b.count - a.count);
 
   // Подсчёт NFT в папках
   const folderCounts = {
@@ -265,7 +275,7 @@ export default function GalleryScreen() {
       </div>
 
       {/* NFT по коллекциям */}
-      {Object.entries(groupedCollections).length === 0 ? (
+      {sortedCollections.length === 0 ? (
         <div className="glass-card rounded-xl p-4 text-center">
           <div className="text-4xl mb-2">📭</div>
           <div className="text-primary font-medium mb-1">Пусто</div>
@@ -278,22 +288,22 @@ export default function GalleryScreen() {
           </div>
         </div>
       ) : (
-        Object.entries(groupedCollections).map(([collection, collectionNFTs]) => (
-          <div key={collection} className="space-y-3">
+        sortedCollections.map(([collectionId, collectionData]) => (
+          <div key={collectionId} className="space-y-3">
             {/* Название коллекции */}
             <div className="flex items-center gap-2">
               <Folder className="w-5 h-5 text-secondary" />
               <h3 className="font-semibold text-primary text-sm">
-                {collection.length > 30 
-                  ? collection.substring(0, 20) + '...' + collection.slice(-8)
-                  : collection}
+                {collectionId.length > 30 
+                  ? collectionId.substring(0, 20) + '...' + collectionId.slice(-8)
+                  : collectionId}
               </h3>
-              <span className="text-xs text-secondary">({collectionNFTs.length})</span>
+              <span className="text-xs text-secondary">({collectionData.count})</span>
             </div>
 
             {/* Сетка NFT */}
             <div className="grid grid-cols-2 gap-3">
-              {collectionNFTs.map((nft, idx) => {
+              {collectionData.nfts.map((nft, idx) => {
                 const nftId = `${nft.contract}_${nft.token_id}`;
                 const isSelected = selectedNFTs.has(nftId);
                 const isHotStaked = nfts?.hotStaked?.some(

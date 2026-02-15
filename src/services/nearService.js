@@ -498,12 +498,12 @@ async function getHotClaimStatus(address) {
   }
 }
 
-async function getTransactionHistory(address) {
+async function getTransactionHistory(address, limit = 100) {
   try {
     const url = `${NEARBLOCKS_API_URL}/account/${address}/txns`;
     const response = await axios.get(url, {
       timeout: API_TIMEOUT,
-      params: { per_page: 50, order: 'desc' }, // Увеличено до 50 для группировки
+      params: { per_page: limit, order: 'desc' },
     });
 
     // ОТЛАДКА: логируем структуру ответа
@@ -978,8 +978,11 @@ async function getAnalytics(address, period = 'week') {
     
     const startTime = now - (periodMs[period] || periodMs.week);
     
+    // Определяем лимит транзакций в зависимости от периода
+    const txLimit = period === 'week' ? 100 : (period === 'month' ? 200 : 300);
+    
     // Получаем транзакции
-    const txns = await getTransactionHistory(address);
+    const txns = await getTransactionHistory(address, txLimit);
     
     // Фильтруем транзакции по периоду
     const filteredTxns = txns.filter(tx => {
@@ -1105,7 +1108,10 @@ async function getAnalytics(address, period = 'week') {
     });
     
     // Топ-4 протокола по количеству транзакций
-    const topContracts = Object.values(contractStats)
+    // Исключаем адрес пользователя из топ протоколов (это не протокол, а переводы)
+    const topContracts = Object.entries(contractStats)
+      .filter(([contract, _]) => contract !== address) // Исключаем адрес пользователя
+      .map(([_, stats]) => stats)
       .sort((a, b) => b.count - a.count)
       .slice(0, 4)
       .map(c => ({
@@ -1147,7 +1153,7 @@ async function getAnalytics(address, period = 'week') {
       };
     });
     
-    // Определяем самый активный протокол
+    // Определяем самый активный протокол (исключаем адрес пользователя)
     const mostActive = topContracts.length > 0 ? topContracts[0].name : 'N/A';
     
     // Формируем insights
@@ -1258,24 +1264,78 @@ function getEmptyAnalytics(period = 'week') {
  * @param {string} address - NEAR адрес
  * @returns {Promise<Array>} Массив NFT с метаданными
  */
+/**
+ * Преобразует IPFS URL в публичный HTTP URL
+ */
+function convertIpfsToHttp(url) {
+  if (!url) return null;
+  
+  // Если это IPFS URL
+  if (url.startsWith('ipfs://')) {
+    return url.replace('ipfs://', 'https://ipfs.io/ipfs/');
+  }
+  
+  // Если это уже HTTP URL
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url;
+  }
+  
+  // Если это просто IPFS hash
+  if (url.startsWith('Qm') || url.startsWith('ba')) {
+    return `https://ipfs.io/ipfs/${url}`;
+  }
+  
+  return url;
+}
+
 async function getNFTBalance(address) {
   try {
-    const url = `${NEARBLOCKS_API_URL}/account/${address}/inventory`;
-    const response = await axios.get(url, { timeout: API_TIMEOUT });
+    const allNFTs = [];
+    let page = 1;
+    const perPage = 100; // Максимум NFT за запрос
     
-    const nfts = response.data.inventory?.nfts ?? [];
+    // Делаем несколько запросов для получения всех NFT (до 300)
+    while (page <= 3) { // Максимум 3 страницы = 300 NFT
+      const url = `${NEARBLOCKS_API_URL}/account/${address}/inventory`;
+      const response = await axios.get(url, { 
+        timeout: API_TIMEOUT,
+        params: { page, per_page: perPage }
+      });
+      
+      const nfts = response.data.inventory?.nfts ?? [];
+      
+      if (nfts.length === 0) break; // Больше NFT нет
+      
+      allNFTs.push(...nfts);
+      
+      if (nfts.length < perPage) break; // Последняя страница
+      
+      page++;
+    }
     
-    console.log(`🎨 [NFT] Найдено ${nfts.length} NFT для ${address}`);
+    console.log(`🎨 [NFT] Загружено ${allNFTs.length} NFT для ${address} (${page - 1} страниц)`);
     
     // Форматируем NFT для удобного отображения
-    return nfts.map(nft => ({
-      contract: nft.contract,
-      token_id: nft.token_id,
-      title: nft.nft?.metadata?.title || nft.token_id,
-      description: nft.nft?.metadata?.description || '',
-      media: nft.nft?.metadata?.media || null,
-      collection: nft.contract,
-    }));
+    return allNFTs.map(nft => {
+      // Пробуем разные пути к metadata
+      const metadata = nft.nft?.metadata || nft.metadata || {};
+      const title = metadata.title || nft.token_id;
+      const description = metadata.description || '';
+      
+      // Пробуем разные пути к media и конвертируем IPFS
+      let media = metadata.media || nft.nft?.media || nft.media || null;
+      media = convertIpfsToHttp(media);
+      
+      return {
+        contract: nft.contract,
+        token_id: nft.token_id,
+        title,
+        description,
+        media,
+        collection: nft.contract,
+        collection_id: metadata.collection_id || nft.contract,
+      };
+    });
   } catch (error) {
     console.error('getNFTBalance error:', error.message);
     return [];
