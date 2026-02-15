@@ -1,40 +1,34 @@
 import { useState, useEffect } from 'react';
-import { Activity, Zap, Sparkles, TrendingUp, BarChart3, PieChart, Wallet, Clock, Info, Image } from 'lucide-react';
-import { fetchHotClaimStatus, fetchAnalytics } from '../services/api';
+import { Activity, Zap, Sparkles, TrendingUp, BarChart3, PieChart, Wallet, Info } from 'lucide-react';
+import { fetchAnalytics } from '../services/api';
 import { useTelegram } from '../hooks/useTelegram';
 import { useTheme } from '../contexts/ThemeContext';
 
 export default function OverviewScreen({ selectedPeriod, onPeriodChange, balanceData }) {
   const { address } = useTelegram();
   const { theme } = useTheme();
-  const [claimStatus, setClaimStatus] = useState(null);
   const [timeRemaining, setTimeRemaining] = useState('');
   const [data, setData] = useState(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
-  // NFT state удалён - больше не используется
-  // const [nfts, setNfts] = useState(null);
-  // const [nftsLoading, setNftsLoading] = useState(true);
-  
+
   const displayAddress = address || 'leninjiv23.tg';
 
-  // Загружаем статус клейма
-  useEffect(() => {
-    async function loadClaimStatus() {
-      try {
-        const status = await fetchHotClaimStatus(displayAddress);
-        setClaimStatus(status);
-      } catch (err) {
-        console.error('Error loading HOT claim status:', err);
-      }
-    }
+  // Нормализация balanceData — поддержка обоих форматов API
+  // API возвращает: { near: 12.45, staking: 50, hot: 2500, nearPrice: 3.5, hotClaim: {...} }
+  // Компонент ожидал: { near: { total, usdValue }, hot: { amount } }
+  const nearTotal = balanceData
+    ? (typeof balanceData.near === 'object' ? balanceData.near?.total : (balanceData.near || 0) + (balanceData.staking || 0))
+    : 0;
+  const nearPrice = balanceData?.nearPrice || 0;
+  const nearUsd = nearTotal * nearPrice;
+  const hotAmount = balanceData
+    ? (typeof balanceData.hot === 'object' ? balanceData.hot?.amount : balanceData.hot) || 0
+    : 0;
 
-    loadClaimStatus();
-    // Обновляем каждые 30 секунд
-    const interval = setInterval(loadClaimStatus, 30000);
-    return () => clearInterval(interval);
-  }, [displayAddress]);
+  // HOT claim status из balanceData.hotClaim (приходит вместе с балансом)
+  const claimStatus = balanceData?.hotClaim || null;
 
-  // Загружаем аналитику
+  // Загрузка аналитики
   useEffect(() => {
     async function loadAnalytics() {
       try {
@@ -43,141 +37,91 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
         setData(analytics);
       } catch (err) {
         console.error('Error loading analytics:', err);
-        // Используем пустую аналитику при ошибке
         setData(null);
       } finally {
         setAnalyticsLoading(false);
       }
     }
-
     loadAnalytics();
   }, [displayAddress, selectedPeriod]);
 
-  // NFT отключены - загружаются только в Галерее вручную
-  // useEffect(() => {
-  //   async function loadNFTs() {
-  //     try {
-  //       setNftsLoading(true);
-  //       const nftData = await fetchNFTs(displayAddress);
-  //       setNfts(nftData);
-  //     } catch (err) {
-  //       console.error('Error loading NFTs:', err);
-  //       setNfts(null);
-  //     } finally {
-  //       setNftsLoading(false);
-  //     }
-  //   }
-  //   loadNFTs();
-  // }, [displayAddress]);
-
-  // Обновляем таймер каждую секунду
+  // Таймер HOT — поддержка обоих форматов
+  // Формат 1 (Python API): { readyToClaim: bool, hoursUntilClaim, minutesUntilClaim }
+  // Формат 2 (legacy): { nextClaimTime: timestamp, canClaim: bool }
   useEffect(() => {
-    if (!claimStatus || !claimStatus.nextClaimTime) {
+    if (!claimStatus) {
       setTimeRemaining('');
       return;
     }
 
+    // Формат Python API
+    if ('readyToClaim' in claimStatus) {
+      if (claimStatus.readyToClaim) {
+        setTimeRemaining('Можно клеймить!');
+      } else {
+        const h = claimStatus.hoursUntilClaim || 0;
+        const m = claimStatus.minutesUntilClaim || 0;
+        setTimeRemaining(h > 0 ? `${h}ч ${m}м` : `${m}м`);
+      }
+      return;
+    }
+
+    // Формат legacy (nextClaimTime)
+    if (!claimStatus.nextClaimTime) {
+      setTimeRemaining('');
+      return;
+    }
     const updateTimer = () => {
       const now = Date.now();
-      const nextClaim = claimStatus.nextClaimTime;
-      const diff = nextClaim - now;
-
+      const diff = claimStatus.nextClaimTime - now;
       if (diff <= 0) {
-        setTimeRemaining('Можно клеймить! 🎉');
+        setTimeRemaining('Можно клеймить!');
         return;
       }
-
       const hours = Math.floor(diff / (1000 * 60 * 60));
       const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
       const seconds = Math.floor((diff % (1000 * 60)) / 1000);
-
-      if (hours > 0) {
-        setTimeRemaining(`${hours}ч ${minutes}м ${seconds}с`);
-      } else {
-        setTimeRemaining(`${minutes}м ${seconds}с`);
-      }
+      setTimeRemaining(hours > 0 ? `${hours}ч ${minutes}м ${seconds}с` : `${minutes}м ${seconds}с`);
     };
-
     updateTimer();
     const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
   }, [claimStatus]);
-  
-  // Если аналитика ещё загружается или отсутствует, используем значения по умолчанию
+
   const maxActivity = data?.activityByDay ? Math.max(...data.activityByDay.map(d => d.txs), 1) : 1;
 
-  // Генерируем insights с реальными данными
+  const canClaim = claimStatus?.readyToClaim || claimStatus?.canClaim || false;
+
   const generateInsights = () => {
     if (!data) return [];
-    
     const insights = [...(data.insights || [])];
-    
-    // Заменяем insight с MOON токенами на реальный HOT баланс
-    if (balanceData && balanceData.hot) {
-      const hotAmount = balanceData.hot.amount.toLocaleString('ru-RU', {
-        maximumFractionDigits: 0
-      });
-      
-      // Находим и заменяем insight про токены
-      const tokenInsightIndex = insights.findIndex(i => i.text.includes('MOON'));
-      if (tokenInsightIndex !== -1) {
-        insights[tokenInsightIndex] = {
-          type: 'success',
-          text: `HOT баланс: ${hotAmount} токенов`,
-          icon: '🔥'
-        };
-      }
+    if (hotAmount > 0) {
+      const hotFormatted = hotAmount.toLocaleString('ru-RU', { maximumFractionDigits: 0 });
+      const tokenIdx = insights.findIndex(i => i.text.includes('MOON'));
+      if (tokenIdx !== -1) insights[tokenIdx] = { type: 'success', text: `HOT баланс: ${hotFormatted} токенов`, icon: '🔥' };
     }
-    
-    // Добавляем insight с балансом NEAR
-    if (balanceData && balanceData.near) {
-      const nearTotal = balanceData.near.total.toFixed(2);
-      const nearUsd = balanceData.near.usdValue 
-        ? ` (~$${balanceData.near.usdValue.toFixed(2)})`
-        : '';
-      
-      insights.unshift({
-        type: 'info',
-        text: `NEAR баланс: ${nearTotal} NEAR${nearUsd}`,
-        icon: '💰'
-      });
+    if (nearTotal > 0) {
+      const nearFormatted = nearTotal.toFixed(2);
+      const nearUsdStr = nearUsd > 0 ? ` (~$${nearUsd.toFixed(2)})` : '';
+      insights.unshift({ type: 'info', text: `NEAR баланс: ${nearFormatted} NEAR${nearUsdStr}`, icon: '💰' });
     }
-    
     return insights;
   };
-  
+
   const insights = generateInsights();
-
-  const categoryLabels = {
-    gaming: '\u{1F3AE} Gaming',
-    defi: '\u{1F4B0} DeFi',
-    transfers: '\u{1F4E4} Переводы',
-    nft: '\u{1F3A8} NFT',
-  };
-
-  const categoryColors = {
-    gaming: 'bg-purple-500',
-    defi: 'bg-green-500',
-    transfers: 'bg-blue-500',
-    nft: 'bg-pink-500',
-  };
+  const categoryLabels = { gaming: '🕹 Gaming', defi: '💰 DeFi', transfers: '📤 Переводы', nft: '🎨 NFT' };
+  const categoryColors = { gaming: 'bg-purple-500', defi: 'bg-green-500', transfers: 'bg-blue-500', nft: 'bg-pink-500' };
 
   return (
     <div className="space-y-4">
-      {/* Period Selector */}
+      {/* Селектор периодов */}
       <div className="flex gap-2 overflow-x-auto pb-2">
-        {[
-          { key: 'week', label: '7 дней' },
-          { key: 'month', label: '30 дней' },
-          { key: 'all', label: 'Всё время' },
-        ].map(period => (
+        {[{ key: 'week', label: '7 дней' }, { key: 'month', label: '30 дней' }, { key: 'all', label: 'Всё время' }].map(period => (
           <button
             key={period.key}
             onClick={() => onPeriodChange(period.key)}
-            className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
-              selectedPeriod === period.key
-                ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30'
-                : 'glass-card text-primary hover:scale-105'
+            className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
+              selectedPeriod === period.key ? 'bg-blue-500 text-white shadow-lg' : 'glass-card text-primary'
             }`}
           >
             {period.label}
@@ -185,198 +129,125 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
         ))}
       </div>
 
-      {/* Balance Card - кликабельная с иконкой info */}
+      {/* Карточка портфеля */}
       {balanceData && (
         <button
-        className={`w-full rounded-2xl p-5 transition-all transform hover:scale-[1.02] text-left relative overflow-hidden ${
-          theme === 'light' 
-            ? 'bg-white border-2 border-[#00C1DE] shadow-[0_20px_50px_rgba(0,193,222,0.3)]' 
-            : 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-xl'
-        }`}
-      >
-        {/* Добавляем принудительный цвет текста для светлой темы */}
-        <div className={theme === 'light' ? 'text-slate-900' : 'text-white'}>
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <Wallet className="w-5 h-5" />
-              <div className="text-sm opacity-90 font-medium">Портфель</div>
-            </div>
-          </div>
-          {/* Остальной код баланса внутри... */}
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <Wallet className="w-5 h-5" />
-              <div className="text-sm opacity-90 font-medium">Портфель</div>
-            </div>
-            <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-              <Info className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <div className="text-xs opacity-75 mb-1">NEAR</div>
-              <div className="text-2xl font-bold">{balanceData.near.total.toFixed(2)}</div>
-              {balanceData.near.usdValue && (
-                <div className="text-xs opacity-75">${balanceData.near.usdValue.toFixed(2)}</div>
-              )}
-            </div>
-            <div>
-              <div className="text-xs opacity-75 mb-1">HOT</div>
-              <div className="text-2xl font-bold">
-                {balanceData.hot.amount.toLocaleString('ru-RU', { maximumFractionDigits: 0 })}
+          className={`w-full rounded-2xl p-5 transition-all transform hover:scale-[1.02] text-left relative overflow-hidden ${
+            theme === 'light'
+              ? 'bg-white border-2 border-[#00C1DE] shadow-[0_20px_50px_rgba(0,193,222,0.3)]'
+              : 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-xl'
+          }`}
+        >
+          <div className={theme === 'light' ? 'text-slate-900' : 'text-white'}>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Wallet className="w-5 h-5" />
+                <div className="text-sm opacity-90 font-medium">Портфель</div>
               </div>
-              <div className="text-xs opacity-75">токенов</div>
+              <Info className="w-4 h-4 opacity-50" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <div className="text-xs opacity-75 mb-1">NEAR</div>
+                <div className="text-2xl font-bold">{nearTotal.toFixed(2)}</div>
+                {nearUsd > 0 && <div className="text-xs opacity-75">${nearUsd.toFixed(2)}</div>}
+              </div>
+              <div>
+                <div className="text-xs opacity-75 mb-1">HOT</div>
+                <div className="text-2xl font-bold">{hotAmount.toLocaleString('ru-RU', { maximumFractionDigits: 0 })}</div>
+                <div className="text-xs opacity-75">токенов</div>
+              </div>
             </div>
           </div>
         </button>
       )}
 
-      {/* HOT Claim Timer - с glassmorphism */}
+      {/* Таймер HOT */}
       {claimStatus && (
         <div className={`rounded-xl p-4 border-2 transition-all ${
-          claimStatus.canClaim 
-            ? 'bg-gradient-to-br from-orange-500 to-red-500 text-white border-orange-600 shadow-lg shadow-orange-500/30 glow-hot' 
-            : 'glass-card border-glass text-primary'
+          canClaim ? 'bg-gradient-to-br from-orange-500 to-red-500 text-white border-orange-600 shadow-lg' : 'glass-card border-glass text-primary'
         }`}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="text-3xl">{claimStatus.canClaim ? '🔥' : '⏰'}</div>
+              <div className="text-3xl">{canClaim ? '🔥' : '⏰'}</div>
               <div>
-                <div className={`text-sm font-semibold ${claimStatus.canClaim ? 'text-white' : 'text-primary'}`}>
-                  {claimStatus.canClaim ? 'HOT готов к клейму!' : 'Следующий клейм HOT'}
-                </div>
-                <div className={`text-xs ${claimStatus.canClaim ? 'text-white opacity-90' : 'text-secondary'}`}>
-                  {claimStatus.canClaim ? 'Откройте бота чтобы получить' : 'Осталось времени'}
-                </div>
+                <div className="text-sm font-semibold">{canClaim ? 'HOT готов!' : 'Следующий клейм HOT'}</div>
+                <div className="text-xs opacity-90">{canClaim ? 'Откройте бота' : 'Осталось времени'}</div>
               </div>
             </div>
-            
-            <div className="text-right">
-              <div className={`flex items-center gap-1 ${claimStatus.canClaim ? 'text-white' : 'text-primary'}`}>
-                {!claimStatus.canClaim && <Clock className="w-4 h-4" />}
-                <div className="text-lg font-bold font-mono">
-                  {timeRemaining || '...'}
-                </div>
-              </div>
-            </div>
+            <div className="text-right font-bold font-mono text-lg">{timeRemaining || '...'}</div>
           </div>
         </div>
       )}
 
-      {/* Insights */}
+      {/* Инсайты */}
       <div className="space-y-2">
         {insights.map((insight, idx) => (
-          <div key={idx} className="glass-card rounded-xl p-4 flex items-start gap-3 hover:scale-[1.01] transition-transform">
+          <div key={idx} className="glass-card rounded-xl p-4 flex items-start gap-3">
             <div className="text-2xl">{insight.icon}</div>
-            <div className="flex-1">
-              <div className="text-sm font-medium text-primary">{insight.text}</div>
-            </div>
+            <div className="text-sm font-medium text-primary">{insight.text}</div>
           </div>
         ))}
       </div>
 
-      {/* Main Stats */}
+      {/* Статистика */}
       {!analyticsLoading && data && (
         <div className="grid grid-cols-2 gap-3">
-          <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-4 text-white shadow-lg shadow-blue-500/20 hover:scale-[1.02] transition-transform">
-            <div className="flex items-center gap-2 mb-2">
-              <Activity className="w-4 h-4 opacity-80" />
-              <div className="text-xs opacity-80">Транзакций</div>
-            </div>
+          <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-4 text-white shadow-lg shadow-blue-500/20">
+            <div className="flex items-center gap-2 mb-2"><Activity className="w-4 h-4 opacity-80" /><div className="text-xs opacity-80">Транзакций</div></div>
             <div className="text-3xl font-bold">{data.totalTxs}</div>
-            <div className="text-xs opacity-80 mt-1">за период</div>
           </div>
-
-          <div className="bg-gradient-to-br from-orange-500 to-red-500 rounded-xl p-4 text-white shadow-lg shadow-orange-500/20 hover:scale-[1.02] transition-transform">
-            <div className="flex items-center gap-2 mb-2">
-              <Zap className="w-4 h-4 opacity-80" />
-              <div className="text-xs opacity-80">Gas расходы</div>
-            </div>
+          <div className="bg-gradient-to-br from-orange-500 to-red-500 rounded-xl p-4 text-white shadow-lg shadow-orange-500/20">
+            <div className="flex items-center gap-2 mb-2"><Zap className="w-4 h-4 opacity-80" /><div className="text-xs opacity-80">Gas (NEAR)</div></div>
             <div className="text-3xl font-bold">{data.gasSpent.toFixed(3)}</div>
-            <div className="text-xs opacity-80 mt-1">NEAR (${data.gasUSD})</div>
           </div>
-
-          <div className="bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl p-4 text-white shadow-lg shadow-purple-500/20 hover:scale-[1.02] transition-transform">
-            <div className="flex items-center gap-2 mb-2">
-              <Sparkles className="w-4 h-4 opacity-80" />
-              <div className="text-xs opacity-80">Контрактов</div>
-            </div>
+          <div className="bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl p-4 text-white shadow-lg">
+            <div className="flex items-center gap-2 mb-2"><Sparkles className="w-4 h-4 opacity-80" /><div className="text-xs opacity-80">Контрактов</div></div>
             <div className="text-3xl font-bold">{data.uniqueContracts}</div>
-            <div className="text-xs opacity-80 mt-1">уникальных</div>
           </div>
-
-          <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl p-4 text-white shadow-lg shadow-green-500/20 hover:scale-[1.02] transition-transform">
-            <div className="flex items-center gap-2 mb-2">
-              <TrendingUp className="w-4 h-4 opacity-80" />
-              <div className="text-xs opacity-80">Самый активный</div>
-            </div>
-            <div className="text-lg font-bold mt-2">{data.mostActive}</div>
-            <div className="text-xs opacity-80">протокол</div>
+          <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl p-4 text-white shadow-lg">
+            <div className="flex items-center gap-2 mb-2"><TrendingUp className="w-4 h-4 opacity-80" /><div className="text-xs opacity-80">Топ протокол</div></div>
+            <div className="text-lg font-bold truncate">{data.mostActive}</div>
           </div>
         </div>
       )}
 
-      {/* Activity Chart */}
+      {/* Графики и Протоколы */}
       {!analyticsLoading && data && (
         <>
           <div className="glass-card rounded-xl p-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-primary">Активность по дням</h3>
-              <BarChart3 className="w-5 h-5 text-secondary" />
-            </div>
-
+            <div className="flex items-center justify-between mb-4"><h3 className="font-semibold text-primary">Активность</h3><BarChart3 className="w-5 h-5 text-secondary" /></div>
             <div className="flex items-end justify-between gap-2 h-32">
               {data.activityByDay.map((day, idx) => (
-                <div key={idx} className="flex-1 flex flex-col items-center gap-2">
-                  <div className="w-full bg-glass rounded-t-lg relative" style={{ height: '100%' }}>
-                    <div
-                      className="absolute bottom-0 w-full bg-gradient-to-t from-blue-500 to-blue-400 rounded-t-lg transition-all hover:from-blue-400 hover:to-blue-300"
-                      style={{ height: `${maxActivity > 0 ? (day.txs / maxActivity) * 100 : 0}%` }}
-                    />
+                <div key={idx} className="flex-1 flex flex-col items-center gap-1">
+                  <div className="w-full bg-glass rounded-t-lg relative h-full">
+                    <div className="absolute bottom-0 w-full bg-blue-500 rounded-t-lg transition-all" style={{ height: `${maxActivity > 0 ? (day.txs / maxActivity) * 100 : 0}%` }} />
                   </div>
-                  <div className="text-xs text-secondary font-medium">{day.day}</div>
-                  <div className="text-xs font-bold text-primary">{day.txs}</div>
+                  <div className="text-[10px] text-secondary">{day.day}</div>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Category Breakdown */}
           <div className="glass-card rounded-xl p-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-primary">По категориям</h3>
-              <PieChart className="w-5 h-5 text-secondary" />
-            </div>
-
+            <div className="flex items-center justify-between mb-4"><h3 className="font-semibold text-primary">По категориям</h3><PieChart className="w-5 h-5 text-secondary" /></div>
             <div className="space-y-3">
               {Object.entries(data.breakdown).filter(([, val]) => val.count > 0).map(([key, val]) => (
                 <div key={key}>
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <div className="text-sm font-medium text-primary">{categoryLabels[key]}</div>
-                      <div className="text-xs text-secondary">{val.count} txs</div>
-                    </div>
-                    <div className="text-sm font-semibold text-primary">{val.percent}%</div>
-                  </div>
-                  <div className="w-full bg-glass rounded-full h-2">
-                    <div
-                      className={`h-2 rounded-full transition-all ${categoryColors[key]}`}
-                      style={{ width: `${val.percent}%` }}
-                    />
-                  </div>
+                  <div className="flex justify-between text-sm mb-1"><span className="text-primary">{categoryLabels[key]}</span><span className="font-bold">{val.percent}%</span></div>
+                  <div className="w-full bg-glass rounded-full h-2"><div className={`h-2 rounded-full ${categoryColors[key]}`} style={{ width: `${val.percent}%` }} /></div>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Top Contracts */}
-          {data.topContracts.length > 0 && (
+          {/* Топ протоколы */}
+          {data.topContracts?.length > 0 && (
             <div className="glass-card rounded-xl p-4">
               <h3 className="font-semibold text-primary mb-3">Топ протоколы</h3>
-
               <div className="space-y-2">
                 {data.topContracts.map((contract, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-3 glass-subtle rounded-lg hover:bg-glass-hover transition cursor-pointer">
+                  <div key={idx} className="flex items-center justify-between p-3 glass-subtle rounded-lg">
                     <div className="flex items-center gap-3">
                       <div className="text-2xl">{contract.icon}</div>
                       <div>
@@ -386,7 +257,7 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
                     </div>
                     <div className="text-right">
                       <div className="text-sm font-semibold text-primary">{contract.txs} txs</div>
-                      <div className="text-xs text-secondary">{contract.gas.toFixed(3)} N gas</div>
+                      <div className="text-xs text-secondary">{contract.gas.toFixed(3)} N</div>
                     </div>
                   </div>
                 ))}
@@ -395,17 +266,6 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
           )}
         </>
       )}
-
-      {/* NFT Section - ОТКЛЮЧЕНО для стабильности */}
-      {/* {!nftsLoading && nfts && nfts.total > 0 && (
-        <div className="glass-card rounded-xl p-4">
-          <div className="text-center">
-            <div className="text-4xl mb-2">🎨</div>
-            <div className="text-primary font-medium mb-1">NFT Галерея</div>
-            <div className="text-secondary text-sm">Доступна на вкладке "Галерея"</div>
-          </div>
-        </div>
-      )} */}
     </div>
   );
 }
