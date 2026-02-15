@@ -9,4 +9,8 @@
 const app = require('../src/api');
 
 // Экспорт для Vercel Serverless Functions
+// Vercel автоматически обрабатывает Express app
 module.exports = app;
+
+// Альтернативный экспорт как default для совместимости
+module.exports.default = app;

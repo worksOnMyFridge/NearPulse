@@ -39,17 +39,20 @@ app.use(cors({
 // JSON parser
 app.use(express.json());
 
-// Логирование запросов
+// Логирование запросов с деталями
 app.use((req, res, next) => {
   console.log(`[API] ${req.method} ${req.path}`);
+  console.log(`[API] Full URL: ${req.protocol}://${req.get('host')}${req.originalUrl}`);
+  console.log(`[API] Headers: Origin=${req.get('origin')}, Referer=${req.get('referer')}`);
   next();
 });
 
 /**
- * GET /api/balance/:address
+ * GET /api/balance/:address и /balance/:address
  * Возвращает полный баланс аккаунта: NEAR, staking, HOT, токены
+ * Два роута для совместимости: локальный и Vercel
  */
-app.get('/api/balance/:address', async (req, res) => {
+app.get(['/api/balance/:address', '/balance/:address'], async (req, res) => {
   try {
     const { address } = req.params;
     
@@ -104,22 +107,24 @@ app.get('/api/balance/:address', async (req, res) => {
 });
 
 /**
- * GET /api/health
+ * GET /api/health и /health
  * Проверка работоспособности API
+ * Два роута для совместимости: локальный и Vercel
  */
-app.get('/api/health', (req, res) => {
+app.get(['/api/health', '/health'], (req, res) => {
   res.json({
     status: 'ok',
     timestamp: Date.now(),
     service: 'NearPulse API',
+    environment: process.env.VERCEL ? 'vercel' : 'local',
   });
 });
 
 /**
- * GET /
+ * GET / и /api
  * Корневой путь - информация об API
  */
-app.get('/', (req, res) => {
+app.get(['/', '/api'], (req, res) => {
   res.json({
     name: 'NearPulse API',
     version: '1.0.0',

@@ -9,7 +9,8 @@
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "api": "node src/api.js",
-    "api:dev": "nodemon src/api.js"
+    "api:dev": "nodemon src/api.js",
+    "test:api": "node test-api.js"
   },
   "engines": {
     "node": ">=18.0.0"
