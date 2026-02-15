@@ -719,6 +719,14 @@ async function runHotClaimMonitor() {
 async function main() {
   try {
     getDb();
+
+    // Запускаем Express API для webapp
+    const apiApp = require('./api');
+    const API_PORT = process.env.API_PORT || process.env.PORT || 3001;
+    apiApp.listen(API_PORT, () => {
+      console.log(`🚀 NearPulse API запущен на порту ${API_PORT}`);
+    });
+
     await bot.launch();
     console.log('✅ NearPulse bot started successfully');
 

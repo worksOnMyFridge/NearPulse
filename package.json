@@ -6,7 +6,7 @@
   "author": "Vlad",
   "license": "MIT",
   "scripts": {
-    "start": "node src/api.js",
+    "start": "node src/index.js",
     "start:bot": "node src/index.js",
     "start:api": "node src/api.js",
     "dev": "nodemon src/index.js",

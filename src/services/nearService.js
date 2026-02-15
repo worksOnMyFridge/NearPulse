@@ -11,6 +11,10 @@ const HOT_CONTRACT = 'game.hot.tg';
 let nearPriceCache = { price: null, timestamp: 0 };
 const PRICE_CACHE_TTL = 5 * 60 * 1000; // 5 минут
 
+// Кэш для цен токенов CoinGecko (избегаем 429)
+let tokenPricesCache = { prices: {}, timestamp: 0 };
+const TOKEN_PRICES_CACHE_TTL = 5 * 60 * 1000; // 5 минут
+
 // firespace (уровень хранилища 0-5) -> часы до заполнения
 // firespace 5 = 12ч (макс. средний уровень), firespace 6+ = 24ч
 const FIRESPACE_HOURS = {
@@ -727,10 +731,16 @@ const MAJOR_TOKENS = [
  */
 async function getTokenPrices(contracts) {
   try {
+    // Проверяем кэш
+    const now = Date.now();
+    if (Object.keys(tokenPricesCache.prices).length > 0 && (now - tokenPricesCache.timestamp) < TOKEN_PRICES_CACHE_TTL) {
+      return tokenPricesCache.prices;
+    }
+
     // Собираем уникальные CoinGecko IDs для контрактов
     const contractToGeckoId = new Map();
     const uniqueGeckoIds = new Set();
-    
+
     contracts.forEach(contract => {
       const geckoId = TOKEN_COINGECKO_MAP[contract.toLowerCase()];
       if (geckoId) {
@@ -760,11 +770,18 @@ async function getTokenPrices(contracts) {
       }
     });
 
-    console.log(`💵 [CoinGecko] Получены цены для ${Object.keys(prices).length / 2} токенов`);
+    // Сохраняем в кэш
+    tokenPricesCache = { prices, timestamp: Date.now() };
+    console.log(`💵 [CoinGecko] Получены цены для ${Object.keys(prices).length / 2} токенов (cached 5 min)`);
     return prices;
   } catch (error) {
     console.error('[CoinGecko] getTokenPrices error:', error.message);
-    return {}; // Возвращаем пустой объект при ошибке
+    // Возвращаем кэш если есть, иначе пустой объект
+    if (Object.keys(tokenPricesCache.prices).length > 0) {
+      console.warn('[CoinGecko] Используем кэшированные цены');
+      return tokenPricesCache.prices;
+    }
+    return {};
   }
 }
 
