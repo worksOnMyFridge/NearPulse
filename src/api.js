@@ -11,11 +11,8 @@ const {
   getHotClaimStatus,
   getAnalytics,
   getNFTBalance,
-  getNFTBalancePaginated,
-  getNFTCount,
   getHotStakedNFTs,
 } = require('./services/nearService');
-const cacheService = require('./services/cacheService');
 
 const app = express();
 const PORT = process.env.API_PORT || 3001;
@@ -110,26 +107,11 @@ app.get(['/api/balance/:address', '/balance/:address'], async (req, res) => {
  * Два роута для совместимости: локальный и Vercel
  */
 app.get(['/api/health', '/health'], (req, res) => {
-  const cacheStats = cacheService.getStats();
-  
   res.json({
     status: 'ok',
     timestamp: Date.now(),
     service: 'NearPulse API',
-    version: '2.0.0',
     environment: process.env.VERCEL ? 'vercel' : 'local',
-    uptime: process.uptime(),
-    cache: {
-      ...cacheStats,
-      hitRate: cacheStats.totalEntries > 0 
-        ? Math.round((cacheStats.activeEntries / cacheStats.totalEntries) * 100) 
-        : 0,
-    },
-    memory: {
-      used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
-      total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
-      unit: 'MB',
-    },
   });
 });
 
@@ -344,105 +326,33 @@ app.get(['/api/analytics/:address', '/analytics/:address'], async (req, res) => 
 });
 
 /**
- * GET /api/nfts/count/:address
- * Быстрый endpoint для получения количества NFT (без загрузки метаданных)
- */
-app.get(['/api/nfts/count/:address', '/nfts/count/:address'], async (req, res) => {
-  try {
-    const { address } = req.params;
-    
-    console.log(`[API] Получаем счётчик NFT для ${address}`);
-    
-    const count = await getNFTCount(address);
-    
-    res.json({
-      address,
-      ...count,
-      timestamp: Date.now(),
-    });
-  } catch (error) {
-    console.error('[API] Ошибка в /api/nfts/count:', error.message);
-    // Fail-Safe: возвращаем 200 с ошибкой
-    res.status(200).json({
-      address: req.params.address,
-      total: 0,
-      wallet: 0,
-      hotStaked: 0,
-      error: 'NFT_COUNT_FAILED',
-      message: error.message,
-      timestamp: Date.now(),
-    });
-  }
-});
-
-/**
- * GET /api/nfts/:address?page=1&limit=50
- * Возвращает NFT с пагинацией (On-Demand архитектура)
+ * GET /api/nfts/:address и /nfts/:address
+ * Возвращает список NFT пользователя (кошелёк + застейканные в HOT)
  */
 app.get(['/api/nfts/:address', '/nfts/:address'], async (req, res) => {
   try {
     const { address } = req.params;
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50;
     
-    // Валидация
-    if (page < 1 || page > 100) {
-      return res.status(400).json({
-        error: 'Invalid page',
-        message: 'Page must be between 1 and 100',
-      });
-    }
+    console.log(`[API] Получаем NFT для ${address}`);
     
-    if (limit < 10 || limit > 100) {
-      return res.status(400).json({
-        error: 'Invalid limit',
-        message: 'Limit must be between 10 and 100',
-      });
-    }
-    
-    console.log(`[API] Получаем NFT для ${address} (page ${page}, limit ${limit})`);
-    
-    // Используем Promise.allSettled для независимой загрузки
-    const [walletResult, hotResult] = await Promise.allSettled([
-      getNFTBalancePaginated(address, page, limit),
+    // Параллельно получаем NFT из кошелька и застейканные в HOT
+    const [walletNFTs, hotStakedNFTs] = await Promise.all([
+      getNFTBalance(address),
       getHotStakedNFTs(address),
     ]);
     
-    // Обрабатываем результаты с Fail-Safe
-    const walletData = walletResult.status === 'fulfilled' 
-      ? walletResult.value 
-      : { nfts: [], hasMore: false, error: 'WALLET_NFT_FAILED' };
-    
-    const hotStakedNFTs = hotResult.status === 'fulfilled' 
-      ? hotResult.value 
-      : [];
-    
     res.json({
       address,
-      wallet: walletData.nfts,
-      hotStaked: page === 1 ? hotStakedNFTs : [], // HOT NFT только на первой странице
-      total: walletData.total,
-      page: walletData.page,
-      limit: walletData.limit,
-      hasMore: walletData.hasMore,
-      error: walletData.error || null,
+      wallet: walletNFTs,
+      hotStaked: hotStakedNFTs,
+      total: walletNFTs.length + hotStakedNFTs.length,
       timestamp: Date.now(),
     });
   } catch (error) {
     console.error('[API] Ошибка в /api/nfts:', error.message);
-    
-    // Fail-Safe: возвращаем 200 вместо 500
-    res.status(200).json({
-      address: req.params.address,
-      wallet: [],
-      hotStaked: [],
-      total: 0,
-      page: parseInt(req.query.page) || 1,
-      limit: parseInt(req.query.limit) || 50,
-      hasMore: false,
-      error: 'NFT_LOAD_FAILED',
+    res.status(500).json({
+      error: 'Failed to fetch NFTs',
       message: error.message,
-      timestamp: Date.now(),
     });
   }
 });
@@ -520,25 +430,15 @@ app.delete(['/api/nfts/spam', '/nfts/spam'], async (req, res) => {
 app.get(['/', '/api'], (req, res) => {
   res.json({
     name: 'NearPulse API',
-    version: '2.0.0',
-    description: 'Production-grade API with On-Demand architecture',
-    endpoints: {
-      health: 'GET /api/health - Health check',
-      balance: 'GET /api/balance/:address - Get account balance',
-      transactions: 'GET /api/transactions/:address?limit=10 - Get transaction history',
-      hotClaim: 'GET /api/hot-claim/:address - Get HOT claim status',
-      analytics: 'GET /api/analytics/:address?period=week - Get analytics (period: week, month, all)',
-      nftCount: 'GET /api/nfts/count/:address - Fast NFT counter (NEW)',
-      nfts: 'GET /api/nfts/:address?page=1&limit=50 - Paginated NFTs (NEW)',
-      spam: 'POST /api/nfts/spam - Mark NFTs as spam',
-      restoreSpam: 'DELETE /api/nfts/spam - Restore NFTs from spam',
-    },
-    features: {
-      cache: 'In-memory cache (5-10 min TTL)',
-      pagination: 'Infinite scroll ready (10-100 NFT per page)',
-      failSafe: 'Always returns 200 OK (check error field)',
-      scaling: 'Handles 10,000+ NFT without 500 errors',
-    },
+    version: '1.0.0',
+    endpoints: [
+      'GET /api/health - Health check',
+      'GET /api/balance/:address - Get account balance',
+      'GET /api/transactions/:address?limit=10 - Get transaction history',
+      'GET /api/hot-claim/:address - Get HOT claim status',
+      'GET /api/analytics/:address?period=week - Get transaction analytics (period: week, month, all)',
+      'GET /api/nfts/:address - Get user NFTs (wallet + HOT staked)',
+    ],
   });
 });
 

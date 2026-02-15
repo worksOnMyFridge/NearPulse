@@ -112,77 +112,24 @@ export async function fetchAnalytics(address, period = 'week') {
 }
 
 /**
- * Получить количество NFT (быстро, без метаданных)
- * @param {string} address - NEAR адрес
- * @returns {Promise<Object>} { total, wallet, hotStaked }
- */
-export async function fetchNFTCount(address) {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/nfts/count/${address}`);
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    console.error('Error fetching NFT count:', error);
-    // Fail-Safe: возвращаем 0 вместо ошибки
-    return { total: 0, wallet: 0, hotStaked: 0, error: 'NFT_COUNT_FAILED' };
-  }
-}
-
-/**
- * Получить NFT с пагинацией
- * @param {string} address - NEAR адрес
- * @param {number} page - Номер страницы (начиная с 1)
- * @param {number} limit - Количество NFT на странице (по умолчанию 50)
- * @returns {Promise<Object>} NFT с пагинацией
- */
-export async function fetchNFTsPaginated(address, page = 1, limit = 50) {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/nfts/${address}?page=${page}&limit=${limit}`);
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    
-    const data = await response.json();
-    
-    // Проверяем на ошибку в ответе
-    if (data.error) {
-      console.warn(`NFT load error: ${data.error}`, data.message);
-      return {
-        ...data,
-        nfts: data.wallet || [],
-        hasMore: false,
-      };
-    }
-    
-    return data;
-  } catch (error) {
-    console.error('Error fetching NFTs:', error);
-    // Fail-Safe: возвращаем пустой результат
-    return {
-      wallet: [],
-      hotStaked: [],
-      total: 0,
-      page,
-      limit,
-      hasMore: false,
-      error: 'NFT_FETCH_FAILED',
-    };
-  }
-}
-
-/**
- * LEGACY: Получить NFT пользователя (кошелёк + застейканные в HOT)
+ * Получить NFT пользователя (кошелёк + застейканные в HOT)
  * @param {string} address - NEAR адрес
  * @returns {Promise<Object>} NFT пользователя
  */
 export async function fetchNFTs(address) {
-  return fetchNFTsPaginated(address, 1, 50);
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/nfts/${address}`);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error fetching NFTs:', error);
+    throw error;
+  }
 }
 
 /**
@@ -246,8 +193,6 @@ export default {
   checkApiHealth,
   fetchAnalytics,
   fetchNFTs,
-  fetchNFTCount,
-  fetchNFTsPaginated,
   markNFTsAsSpam,
   restoreNFTsFromSpam,
 };
