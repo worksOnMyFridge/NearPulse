@@ -2,7 +2,11 @@
  * API Service для работы с NearPulse REST API
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+// В production используем относительные пути (тот же домен)
+// В development используем localhost:3001
+const API_BASE_URL = import.meta.env.PROD 
+  ? '' // Production: тот же домен
+  : (import.meta.env.VITE_API_URL || 'http://localhost:3001'); // Development: localhost
 
 /**
  * Получить баланс аккаунта

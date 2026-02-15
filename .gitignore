@@ -45,3 +45,6 @@ secrets/
 
 # Output files
 output.txt
+
+# Vercel
+.vercel

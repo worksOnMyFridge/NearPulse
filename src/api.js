@@ -16,6 +16,7 @@ const PORT = process.env.API_PORT || 3001;
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:3000',
+  'https://near-pulse.vercel.app',
   process.env.WEBAPP_URL,
 ].filter(Boolean);
 
@@ -137,10 +138,14 @@ app.use((req, res) => {
   });
 });
 
-// Запуск сервера
-app.listen(PORT, () => {
-  console.log(`🚀 NearPulse API запущен на http://localhost:${PORT}`);
-  console.log(`📱 CORS разрешён для: ${process.env.WEBAPP_URL || 'http://localhost:5173'}`);
-});
+// Запуск сервера ТОЛЬКО если файл запущен напрямую (не импортирован)
+// Это позволяет использовать app как модуль в Vercel serverless функциях
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`🚀 NearPulse API запущен на http://localhost:${PORT}`);
+    console.log(`📱 CORS разрешён для: ${process.env.WEBAPP_URL || 'http://localhost:5173'}`);
+  });
+}
 
+// Экспорт для использования в Vercel и других окружениях
 module.exports = app;
