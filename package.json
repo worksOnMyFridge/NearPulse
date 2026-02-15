@@ -10,7 +10,8 @@
     "dev": "nodemon src/index.js",
     "api": "node src/api.js",
     "api:dev": "nodemon src/api.js",
-    "test:api": "node test-api.js"
+    "test:api": "node test-api.js",
+    "vercel-build": "cd webapp && npm ci && npm run build"
   },
   "engines": {
     "node": ">=18.0.0"
