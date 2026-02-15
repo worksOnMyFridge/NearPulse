@@ -89,6 +89,10 @@ export async function checkApiHealth() {
   }
 }
 
+// Кэш аналитики: избегаем 429 при переключении вкладок (запрос только при смене периода)
+let analyticsCache = { key: null, data: null, ts: 0 };
+const ANALYTICS_CACHE_TTL = 60000; // 60 сек
+
 /**
  * Получить аналитику транзакций за период
  * @param {string} address - NEAR адрес
@@ -96,6 +100,11 @@ export async function checkApiHealth() {
  * @returns {Promise<Object>} Аналитика транзакций
  */
 export async function fetchAnalytics(address, period = 'week') {
+  const key = `${address}:${period}`;
+  const now = Date.now();
+  if (analyticsCache.key === key && analyticsCache.data && (now - analyticsCache.ts) < ANALYTICS_CACHE_TTL) {
+    return analyticsCache.data;
+  }
   try {
     const response = await fetch(`${API_BASE_URL}/api/analytics/${address}?period=${period}`);
     
@@ -104,6 +113,7 @@ export async function fetchAnalytics(address, period = 'week') {
     }
     
     const data = await response.json();
+    analyticsCache = { key, data, ts: Date.now() };
     return data;
   } catch (error) {
     console.error('Error fetching analytics:', error);

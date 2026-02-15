@@ -502,7 +502,21 @@ async function getHotClaimStatus(address) {
   }
 }
 
+// Rate limiting: 500ms между вызовами API транзакций
+let lastTxApiCall = 0;
+const RATE_LIMIT_MS = 500;
+
+async function rateLimitDelay() {
+  const now = Date.now();
+  const elapsed = now - lastTxApiCall;
+  if (lastTxApiCall > 0 && elapsed < RATE_LIMIT_MS) {
+    await new Promise((r) => setTimeout(r, RATE_LIMIT_MS - elapsed));
+  }
+  lastTxApiCall = Date.now();
+}
+
 async function getTransactionHistory(address, limit = 100) {
+  await rateLimitDelay();
   // ВРЕМЕННО: Возвращаем пустой массив из-за Nearblocks rate limit 429
   console.log(`⚠️ [TX] История транзакций временно отключена (Nearblocks 429)`);
   return [];
@@ -514,6 +528,7 @@ async function getTransactionHistory(address, limit = 100) {
  * @returns {Promise<Object>} Детали транзакции с логами
  */
 async function getTransactionDetails(txHash) {
+  await rateLimitDelay();
   try {
     const url = `${NEARBLOCKS_API_URL}/txns/${txHash}`;
     const response = await axios.get(url, { timeout: API_TIMEOUT });
@@ -954,6 +969,7 @@ async function getIntearPrices(contracts) {
  * ВРЕМЕННО ОТКЛЮЧЕНО из-за Nearblocks 429
  */
 async function getAnalytics(address, period = 'week') {
+  await rateLimitDelay();
   console.log(`⚠️ [Analytics] Аналитика временно отключена (Nearblocks 429)`);
   return getEmptyAnalytics(period);
 }

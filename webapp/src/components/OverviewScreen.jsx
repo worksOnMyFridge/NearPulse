@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react';
 import { Activity, Zap, Sparkles, TrendingUp, BarChart3, PieChart, Wallet, Clock, Info, Image } from 'lucide-react';
 import { fetchHotClaimStatus, fetchAnalytics } from '../services/api';
 import { useTelegram } from '../hooks/useTelegram';
+import { useTheme } from '../contexts/ThemeContext';
 
 export default function OverviewScreen({ selectedPeriod, onPeriodChange, balanceData }) {
   const { address } = useTelegram();
+  const { theme } = useTheme();
   const [claimStatus, setClaimStatus] = useState(null);
   const [timeRemaining, setTimeRemaining] = useState('');
   const [data, setData] = useState(null);
@@ -185,7 +187,22 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
 
       {/* Balance Card - кликабельная с иконкой info */}
       {balanceData && (
-        <button className="w-full bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl p-4 text-white glass-card hover:scale-[1.02] transition-transform group text-left">
+        <button
+        className={`w-full rounded-2xl p-5 transition-all transform hover:scale-[1.02] text-left relative overflow-hidden ${
+          theme === 'light' 
+            ? 'bg-white border-2 border-[#00C1DE] shadow-[0_20px_50px_rgba(0,193,222,0.3)]' 
+            : 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-xl'
+        }`}
+      >
+        {/* Добавляем принудительный цвет текста для светлой темы */}
+        <div className={theme === 'light' ? 'text-slate-900' : 'text-white'}>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Wallet className="w-5 h-5" />
+              <div className="text-sm opacity-90 font-medium">Портфель</div>
+            </div>
+          </div>
+          {/* Остальной код баланса внутри... */}
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <Wallet className="w-5 h-5" />
