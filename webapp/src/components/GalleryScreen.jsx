@@ -1,29 +1,69 @@
-import { useState, useEffect } from 'react';
-import { Image, Check, X, Trash2, RotateCcw, AlertCircle, Folder, Flame } from 'lucide-react';
-import { fetchNFTs } from '../services/api';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Image, Check, X, Trash2, RotateCcw, AlertCircle, Folder, Flame, Loader } from 'lucide-react';
+import { fetchNFTCount, fetchNFTsPaginated } from '../services/api';
 import { useTelegram } from '../hooks/useTelegram';
 import LoadingSpinner from './LoadingSpinner';
 
 export default function GalleryScreen() {
   const { address } = useTelegram();
-  const [nfts, setNfts] = useState(null);
+  const [nftCount, setNftCount] = useState(null);
+  const [walletNFTs, setWalletNFTs] = useState([]);
+  const [hotStakedNFTs, setHotStakedNFTs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
   const [selectedFolder, setSelectedFolder] = useState('all');
   const [selectMode, setSelectMode] = useState(false);
   const [selectedNFTs, setSelectedNFTs] = useState(new Set());
-  const [spamNFTs, setSpamNFTs] = useState(new Set()); // Локальное состояние спама
+  const [spamNFTs, setSpamNFTs] = useState(new Set());
   
   const displayAddress = address || 'leninjiv23.tg';
+  const observer = useRef();
 
-  // Загружаем NFT
+  // Быстрая загрузка счётчика NFT
   useEffect(() => {
-    async function loadNFTs() {
+    async function loadCount() {
+      try {
+        const count = await fetchNFTCount(displayAddress);
+        
+        if (count.error) {
+          console.warn('[Gallery] NFT count failed:', count.error);
+          setNftCount({ total: 0, wallet: 0, hotStaked: 0 });
+        } else {
+          setNftCount(count);
+        }
+      } catch (err) {
+        console.error('Error loading NFT count:', err);
+        setNftCount({ total: 0, wallet: 0, hotStaked: 0 });
+      }
+    }
+
+    loadCount();
+  }, [displayAddress]);
+
+  // Загрузка первой страницы NFT
+  useEffect(() => {
+    async function loadFirstPage() {
       try {
         setLoading(true);
         setError(null);
-        const nftData = await fetchNFTs(displayAddress);
-        setNfts(nftData);
+        
+        const nftData = await fetchNFTsPaginated(displayAddress, 1, 50);
+        
+        if (nftData.error) {
+          setError(nftData.error === 'NFT_TIMEOUT' 
+            ? 'NFT загружаются дольше обычного. Попробуйте позже.' 
+            : 'Ошибка загрузки NFT');
+          setWalletNFTs([]);
+          setHotStakedNFTs([]);
+          setHasMore(false);
+        } else {
+          setWalletNFTs(nftData.wallet || []);
+          setHotStakedNFTs(nftData.hotStaked || []);
+          setHasMore(nftData.hasMore);
+        }
         
         // Загружаем сохранённые спам NFT из localStorage
         const savedSpam = localStorage.getItem(`spam_nfts_${displayAddress}`);
@@ -32,14 +72,56 @@ export default function GalleryScreen() {
         }
       } catch (err) {
         console.error('Error loading NFTs:', err);
-        setError(err.message);
+        setError('Ошибка загрузки NFT');
       } finally {
         setLoading(false);
       }
     }
 
-    loadNFTs();
+    loadFirstPage();
   }, [displayAddress]);
+
+  // Загрузка следующей страницы NFT
+  const loadMoreNFTs = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    
+    try {
+      setLoadingMore(true);
+      const nextPage = currentPage + 1;
+      
+      const nftData = await fetchNFTsPaginated(displayAddress, nextPage, 50);
+      
+      if (nftData.error) {
+        console.warn('[Gallery] Load more failed:', nftData.error);
+        setHasMore(false);
+      } else {
+        setWalletNFTs(prev => [...prev, ...(nftData.wallet || [])]);
+        setHasMore(nftData.hasMore);
+        setCurrentPage(nextPage);
+        
+        console.log(`[Gallery] Загружена страница ${nextPage}: +${nftData.wallet?.length || 0} NFT`);
+      }
+    } catch (err) {
+      console.error('Error loading more NFTs:', err);
+      setHasMore(false);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [displayAddress, currentPage, hasMore, loadingMore]);
+
+  // Intersection Observer для infinite scroll
+  const lastNFTRef = useCallback(node => {
+    if (loading || loadingMore) return;
+    if (observer.current) observer.current.disconnect();
+    
+    observer.current = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && hasMore) {
+        loadMoreNFTs();
+      }
+    });
+    
+    if (node) observer.current.observe(node);
+  }, [loading, loadingMore, hasMore, loadMoreNFTs]);
 
   // Группировка NFT по коллекциям
   const groupByCollection = (nftList) => {
@@ -64,11 +146,6 @@ export default function GalleryScreen() {
 
   // Получаем отфильтрованные NFT
   const getFilteredNFTs = () => {
-    if (!nfts) return { wallet: [], hotStaked: [] };
-    
-    const walletNFTs = nfts.wallet || [];
-    const hotStakedNFTs = nfts.hotStaked || [];
-    
     // Фильтруем по спаму
     const filteredWallet = walletNFTs.filter(nft => {
       const nftId = `${nft.contract}_${nft.token_id}`;
@@ -93,10 +170,10 @@ export default function GalleryScreen() {
   const sortedCollections = Object.entries(groupedCollections)
     .sort(([, a], [, b]) => b.count - a.count);
 
-  // Подсчёт NFT в папках
+  // Подсчёт NFT в папках (используем счётчик из API если доступен)
   const folderCounts = {
-    all: (nfts?.wallet?.length || 0) + (nfts?.hotStaked?.length || 0) - spamNFTs.size,
-    hot: nfts?.hotStaked?.length || 0,
+    all: (nftCount?.total || walletNFTs.length) - spamNFTs.size,
+    hot: hotStakedNFTs.length,
     spam: spamNFTs.size,
   };
 
@@ -177,7 +254,7 @@ export default function GalleryScreen() {
   }
 
   // Нет NFT
-  if (!nfts || (nfts.total === 0 && spamNFTs.size === 0)) {
+  if (!loading && walletNFTs.length === 0 && hotStakedNFTs.length === 0 && spamNFTs.size === 0) {
     return (
       <div className="space-y-4">
         <div className="glass-card rounded-xl p-4 text-center">
@@ -188,12 +265,32 @@ export default function GalleryScreen() {
       </div>
     );
   }
+  
+  // Показываем ошибку но не блокируем UI
+  const showError = error && walletNFTs.length === 0;
 
   return (
     <div className="space-y-4 pb-20">
+      {/* Ошибка (не блокирует UI) */}
+      {showError && (
+        <div className="glass-card rounded-xl p-3 border border-orange-500/30">
+          <div className="flex items-center gap-2 text-orange-600">
+            <AlertCircle className="w-5 h-5" />
+            <div className="text-sm font-medium">{error}</div>
+          </div>
+        </div>
+      )}
+
       {/* Заголовок и режим выбора */}
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold text-primary">Галерея NFT</h2>
+        <div>
+          <h2 className="text-xl font-bold text-primary">Галерея NFT</h2>
+          {nftCount && nftCount.total > 0 && (
+            <div className="text-xs text-secondary mt-1">
+              Всего: {nftCount.total.toLocaleString('ru-RU')} NFT
+            </div>
+          )}
+        </div>
         
         {!selectMode ? (
           <button
@@ -306,13 +403,19 @@ export default function GalleryScreen() {
               {collectionData.nfts.map((nft, idx) => {
                 const nftId = `${nft.contract}_${nft.token_id}`;
                 const isSelected = selectedNFTs.has(nftId);
-                const isHotStaked = nfts?.hotStaked?.some(
+                const isHotStaked = hotStakedNFTs.some(
                   h => h.contract === nft.contract && h.token_id === nft.token_id
                 );
+                
+                // Последний элемент для Intersection Observer
+                const isLastInCollection = idx === collectionData.nfts.length - 1;
+                const isLastCollection = sortedCollections[sortedCollections.length - 1][0] === collectionId;
+                const shouldObserve = isLastInCollection && isLastCollection;
 
                 return (
                   <div
                     key={idx}
+                    ref={shouldObserve ? lastNFTRef : null}
                     onClick={() => selectMode && toggleSelectNFT(nft)}
                     className={`glass-card rounded-lg p-3 hover:bg-glass-hover transition-all cursor-pointer relative ${
                       isSelected ? 'ring-2 ring-blue-500' : ''
@@ -376,6 +479,21 @@ export default function GalleryScreen() {
             </div>
           </div>
         ))
+      )}
+
+      {/* Индикатор загрузки следующей страницы */}
+      {loadingMore && (
+        <div className="glass-card rounded-xl p-4 flex items-center justify-center gap-2">
+          <Loader className="w-5 h-5 text-blue-500 animate-spin" />
+          <span className="text-sm text-secondary">Загружаем ещё NFT...</span>
+        </div>
+      )}
+
+      {/* Конец списка */}
+      {!loading && !loadingMore && !hasMore && allDisplayNFTs.length > 0 && (
+        <div className="text-center text-xs text-secondary py-4">
+          Все NFT загружены ({allDisplayNFTs.length})
+        </div>
       )}
 
       {/* Bottom Toolbar - массовые действия */}

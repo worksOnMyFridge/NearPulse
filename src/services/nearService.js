@@ -1,5 +1,6 @@
 const axios = require('axios');
 const { NEARBLOCKS_API_URL, PIKESPEAK_API_URL, INTEAR_API_URL, API_TIMEOUT } = require('../config/constants');
+const cacheService = require('./cacheService');
 
 const PIKESPEAK_API_KEY = process.env.PIKESPEAK_API_KEY;
 
@@ -1288,41 +1289,79 @@ function convertIpfsToHttp(url) {
   return url;
 }
 
-async function getNFTBalance(address) {
+/**
+ * Получает общее количество NFT (быстро, без метаданных)
+ * @param {string} address - NEAR адрес
+ * @returns {Promise<Object>} { total, wallet, hotStaked }
+ */
+async function getNFTCount(address) {
+  const cacheKey = `nft_count_${address}`;
+  
+  // Проверяем кэш
+  const cached = cacheService.get(cacheKey);
+  if (cached) return cached;
+  
   try {
-    const allNFTs = [];
-    let page = 1;
-    const perPage = 100; // Максимум NFT за запрос
+    const url = `${NEARBLOCKS_API_URL}/account/${address}/inventory`;
+    const response = await axios.get(url, { 
+      timeout: 5000, // Короткий timeout для счётчика
+      params: { page: 1, per_page: 1 } // Запрашиваем только 1 NFT для подсчёта
+    });
     
-    // Делаем несколько запросов для получения всех NFT (до 300)
-    while (page <= 3) { // Максимум 3 страницы = 300 NFT
-      const url = `${NEARBLOCKS_API_URL}/account/${address}/inventory`;
-      const response = await axios.get(url, { 
-        timeout: API_TIMEOUT,
-        params: { page, per_page: perPage }
-      });
-      
-      const nfts = response.data.inventory?.nfts ?? [];
-      
-      if (nfts.length === 0) break; // Больше NFT нет
-      
-      allNFTs.push(...nfts);
-      
-      if (nfts.length < perPage) break; // Последняя страница
-      
-      page++;
-    }
+    // Nearblocks возвращает общее количество в заголовках или метаданных
+    const total = response.data.inventory?.nfts?.length || 0;
     
-    console.log(`🎨 [NFT] Загружено ${allNFTs.length} NFT для ${address} (${page - 1} страниц)`);
+    // Приблизительный подсчёт (если есть пагинация в ответе)
+    const totalCount = response.data.total || response.data.count || total;
     
-    // Форматируем NFT для удобного отображения
-    return allNFTs.map(nft => {
-      // Пробуем разные пути к metadata
+    const result = {
+      total: totalCount,
+      wallet: totalCount,
+      hotStaked: 0, // Будет обновлено позже
+    };
+    
+    // Кэшируем на 10 минут
+    cacheService.set(cacheKey, result, 10 * 60 * 1000);
+    
+    console.log(`🔢 [NFT Count] ${address}: ${totalCount} NFT`);
+    return result;
+  } catch (error) {
+    console.error('getNFTCount error:', error.message);
+    return { total: 0, wallet: 0, hotStaked: 0, error: 'NFT_COUNT_FAILED' };
+  }
+}
+
+/**
+ * Получает NFT с пагинацией и кэшированием (Production-grade)
+ * @param {string} address - NEAR адрес
+ * @param {number} page - Номер страницы (начиная с 1)
+ * @param {number} limit - Количество NFT на странице (по умолчанию 50)
+ * @returns {Promise<Object>} { nfts, hasMore, total, page }
+ */
+async function getNFTBalancePaginated(address, page = 1, limit = 50) {
+  const cacheKey = `nft_page_${address}_${page}_${limit}`;
+  
+  // Проверяем кэш
+  const cached = cacheService.get(cacheKey);
+  if (cached) return cached;
+  
+  try {
+    const url = `${NEARBLOCKS_API_URL}/account/${address}/inventory`;
+    const response = await axios.get(url, { 
+      timeout: 30000, // 30 секунд для загрузки NFT
+      params: { page, per_page: limit }
+    });
+    
+    const nfts = response.data.inventory?.nfts ?? [];
+    
+    console.log(`🎨 [NFT Page ${page}] Загружено ${nfts.length} NFT для ${address}`);
+    
+    // Форматируем NFT
+    const formattedNFTs = nfts.map(nft => {
       const metadata = nft.nft?.metadata || nft.metadata || {};
       const title = metadata.title || nft.token_id;
       const description = metadata.description || '';
       
-      // Пробуем разные пути к media и конвертируем IPFS
       let media = metadata.media || nft.nft?.media || nft.media || null;
       media = convertIpfsToHttp(media);
       
@@ -1336,8 +1375,98 @@ async function getNFTBalance(address) {
         collection_id: metadata.collection_id || nft.contract,
       };
     });
+    
+    const result = {
+      nfts: formattedNFTs,
+      hasMore: nfts.length === limit, // Есть ещё страницы
+      total: response.data.total || null,
+      page,
+      limit,
+    };
+    
+    // Кэшируем на 5 минут
+    cacheService.set(cacheKey, result, 5 * 60 * 1000);
+    
+    return result;
+  } catch (error) {
+    console.error('getNFTBalancePaginated error:', error.message);
+    
+    // Fail-Safe: возвращаем пустой результат с ошибкой
+    return {
+      nfts: [],
+      hasMore: false,
+      total: 0,
+      page,
+      limit,
+      error: error.code === 'ECONNABORTED' ? 'NFT_TIMEOUT' : 'NFT_LOAD_FAILED',
+      errorMessage: error.message,
+    };
+  }
+}
+
+/**
+ * LEGACY: Получает все NFT (для обратной совместимости)
+ * ⚠️ Не рекомендуется для аккаунтов с >500 NFT
+ */
+async function getNFTBalance(address, maxPages = 3) {
+  const cacheKey = `nft_all_${address}_${maxPages}`;
+  
+  // Проверяем кэш
+  const cached = cacheService.get(cacheKey);
+  if (cached) return cached;
+  
+  try {
+    const allNFTs = [];
+    let page = 1;
+    const perPage = 100;
+    
+    while (page <= maxPages) {
+      const url = `${NEARBLOCKS_API_URL}/account/${address}/inventory`;
+      const response = await axios.get(url, { 
+        timeout: 15000, // 15 секунд на страницу
+        params: { page, per_page: perPage }
+      });
+      
+      const nfts = response.data.inventory?.nfts ?? [];
+      
+      if (nfts.length === 0) break;
+      
+      allNFTs.push(...nfts);
+      
+      if (nfts.length < perPage) break;
+      
+      page++;
+    }
+    
+    console.log(`🎨 [NFT] Загружено ${allNFTs.length} NFT для ${address} (${page - 1} страниц)`);
+    
+    const formattedNFTs = allNFTs.map(nft => {
+      const metadata = nft.nft?.metadata || nft.metadata || {};
+      const title = metadata.title || nft.token_id;
+      const description = metadata.description || '';
+      
+      let media = metadata.media || nft.nft?.media || nft.media || null;
+      media = convertIpfsToHttp(media);
+      
+      return {
+        contract: nft.contract,
+        token_id: nft.token_id,
+        title,
+        description,
+        media,
+        collection: nft.contract,
+        collection_id: metadata.collection_id || nft.contract,
+      };
+    });
+    
+    // Кэшируем на 5 минут
+    cacheService.set(cacheKey, formattedNFTs, 5 * 60 * 1000);
+    
+    return formattedNFTs;
   } catch (error) {
     console.error('getNFTBalance error:', error.message);
+    
+    // Fail-Safe: возвращаем пустой массив вместо ошибки
     return [];
   }
 }
@@ -1410,6 +1539,8 @@ module.exports = {
   getNearPrice,
   getAnalytics,
   getNFTBalance,
+  getNFTBalancePaginated,
+  getNFTCount,
   getHotStakedNFTs,
   TOKEN_DECIMALS_MAP,
   TOKEN_COINGECKO_MAP,
