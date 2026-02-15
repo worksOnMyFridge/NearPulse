@@ -1,9 +1,49 @@
-import { Activity, Zap, Sparkles, TrendingUp, BarChart3, PieChart } from 'lucide-react';
+import { Activity, Zap, Sparkles, TrendingUp, BarChart3, PieChart, Wallet } from 'lucide-react';
 import { analytics } from '../lib/mockData';
 
-export default function OverviewScreen({ selectedPeriod, onPeriodChange }) {
+export default function OverviewScreen({ selectedPeriod, onPeriodChange, balanceData }) {
   const data = analytics[selectedPeriod] || analytics.week;
   const maxActivity = Math.max(...data.activityByDay.map(d => d.txs));
+
+  // Генерируем insights с реальными данными
+  const generateInsights = () => {
+    const insights = [...data.insights];
+    
+    // Заменяем insight с MOON токенами на реальный HOT баланс
+    if (balanceData && balanceData.hot) {
+      const hotAmount = balanceData.hot.amount.toLocaleString('ru-RU', {
+        maximumFractionDigits: 0
+      });
+      
+      // Находим и заменяем insight про токены
+      const tokenInsightIndex = insights.findIndex(i => i.text.includes('MOON'));
+      if (tokenInsightIndex !== -1) {
+        insights[tokenInsightIndex] = {
+          type: 'success',
+          text: `HOT баланс: ${hotAmount} токенов`,
+          icon: '🔥'
+        };
+      }
+    }
+    
+    // Добавляем insight с балансом NEAR
+    if (balanceData && balanceData.near) {
+      const nearTotal = balanceData.near.total.toFixed(2);
+      const nearUsd = balanceData.near.usdValue 
+        ? ` (~$${balanceData.near.usdValue.toFixed(2)})`
+        : '';
+      
+      insights.unshift({
+        type: 'info',
+        text: `NEAR баланс: ${nearTotal} NEAR${nearUsd}`,
+        icon: '💰'
+      });
+    }
+    
+    return insights;
+  };
+  
+  const insights = generateInsights();
 
   const categoryLabels = {
     gaming: '\u{1F3AE} Gaming',
@@ -42,9 +82,35 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange }) {
         ))}
       </div>
 
+      {/* Balance Card - если есть данные */}
+      {balanceData && (
+        <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl p-4 text-white">
+          <div className="flex items-center gap-2 mb-3">
+            <Wallet className="w-5 h-5" />
+            <div className="text-sm opacity-90">Портфель</div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <div className="text-xs opacity-75 mb-1">NEAR</div>
+              <div className="text-2xl font-bold">{balanceData.near.total.toFixed(2)}</div>
+              {balanceData.near.usdValue && (
+                <div className="text-xs opacity-75">${balanceData.near.usdValue.toFixed(2)}</div>
+              )}
+            </div>
+            <div>
+              <div className="text-xs opacity-75 mb-1">HOT</div>
+              <div className="text-2xl font-bold">
+                {balanceData.hot.amount.toLocaleString('ru-RU', { maximumFractionDigits: 0 })}
+              </div>
+              <div className="text-xs opacity-75">токенов</div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Insights */}
       <div className="space-y-2">
-        {data.insights.map((insight, idx) => (
+        {insights.map((insight, idx) => (
           <div key={idx} className="bg-white rounded-xl p-4 flex items-start gap-3 border border-gray-100">
             <div className="text-2xl">{insight.icon}</div>
             <div className="flex-1">

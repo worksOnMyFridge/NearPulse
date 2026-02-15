@@ -54,6 +54,24 @@ function getTokenDecimals(contract) {
   return 18;
 }
 
+/**
+ * Форматирует количество токена в читаемый вид
+ * @param {number} amount - Количество токена (нормализованное)
+ * @returns {string} Отформатированная строка
+ */
+function formatTokenAmount(amount) {
+  if (amount >= 1000000) {
+    return (amount / 1000000).toFixed(2) + 'M';
+  } else if (amount >= 1000) {
+    return (amount / 1000).toFixed(2) + 'K';
+  } else if (amount >= 1) {
+    return amount.toLocaleString('en-US', { maximumFractionDigits: 4 });
+  } else if (amount > 0) {
+    return amount.toFixed(6).replace(/\.?0+$/, '');
+  }
+  return '0';
+}
+
 bot.start((ctx) => {
   ctx.reply(
     `${APPLE_STYLE_HEADER}\n` +
@@ -403,16 +421,20 @@ bot.command('transactions', async (ctx) => {
                   amount = typeof rawAmount === 'string' ? rawAmount : String(rawAmount);
                 }
                 
-                // ОТЛАДКА: логируем args для первых 3 токен-трансферов
-                if (process.env.NODE_ENV !== 'production' && tokenTransfers.length < 3) {
-                  console.log(`[FT Transfer DEBUG] Contract: ${receiver}, Amount: ${amount}, Args:`, action.args);
-                }
+                // Определяем направление: outgoing (пользователь отправляет)
+                const isOutgoing = tx.predecessor_account_id === userAddress;
+                
+                // Для swap транзакций (когда receiver = ref-finance) - это ОТДАННЫЕ токены
+                // Считаем их как OUT, даже если технически они идут к DEX
+                const isSwapOut = action.args?.receiver_id?.includes('ref-finance') || 
+                                  action.args?.receiver_id?.includes('rhea');
                 
                 tokenTransfers.push({
                   token: tokenName,
                   contract: receiver,
                   action: 'transfer',
                   amount: amount, // raw amount (строка)
+                  direction: (isOutgoing || isSwapOut) ? 'out' : 'in',
                 });
               }
               
@@ -426,6 +448,114 @@ bot.command('transactions', async (ctx) => {
                 method: 'NEAR Transfer',
                 type: 'TRANSFER'
               };
+            }
+          });
+        }
+        
+        // ПАРСИНГ ВХОДЯЩИХ ТОКЕНОВ из outcomes/logs
+        // При swap токены ПРИХОДЯТ к пользователю через события в outcomes
+        if (tx.outcomes && typeof tx.outcomes === 'object') {
+          const outcomesArray = Object.values(tx.outcomes);
+          
+          
+          outcomesArray.forEach(outcome => {
+            // Проверяем logs на наличие FT events
+            if (outcome.logs && Array.isArray(outcome.logs)) {
+              outcome.logs.forEach(log => {
+                // EVENT_JSON формат: "EVENT_JSON:{...}"
+                if (log.startsWith('EVENT_JSON:')) {
+                  try {
+                    const eventData = JSON.parse(log.substring(11));
+                    
+                    // FT Transfer event
+                    if (eventData.standard === 'nep141' && eventData.event === 'ft_transfer') {
+                      eventData.data?.forEach(transfer => {
+                        // Проверяем что токены ПРИШЛИ к пользователю
+                        if (transfer.new_owner_id === userAddress || transfer.receiver_id === userAddress) {
+                          const tokenContract = tx.receiver_account_id;
+                          const amount = transfer.amount;
+                          
+                          // Извлекаем имя токена
+                          let tokenName = 'TOKEN';
+                          const parts = tokenContract.split('.');
+                          if (parts[0] === 'token' && parts.length >= 3) {
+                            tokenName = parts[1].toUpperCase();
+                          } else if (tokenContract.includes('meme-cooking')) {
+                            tokenName = parts[0].split('-')[0].toUpperCase();
+                          } else if (tokenContract.includes('.tkn.')) {
+                            tokenName = parts[0].toUpperCase();
+                          } else {
+                            tokenName = parts[0].toUpperCase();
+                          }
+                          
+                          tokenTransfers.push({
+                            token: tokenName,
+                            contract: tokenContract,
+                            action: 'receive',
+                            amount: amount,
+                            direction: 'in',
+                          });
+                          
+                          if (process.env.NODE_ENV !== 'production') {
+                            console.log(`[FT Received DEBUG] ${tokenName}: ${amount} from ${transfer.old_owner_id || 'unknown'}`);
+                          }
+                        }
+                      });
+                    }
+                  } catch (e) {
+                    // Игнорируем ошибки парсинга
+                  }
+                }
+              });
+            }
+          });
+        }
+        
+        // ТАКЖЕ проверяем receipt_outcome.logs (альтернативное место для логов)
+        if (tx.receipt_outcome && tx.receipt_outcome.logs && Array.isArray(tx.receipt_outcome.logs)) {
+          tx.receipt_outcome.logs.forEach(log => {
+            if (log.startsWith('EVENT_JSON:')) {
+              try {
+                const eventData = JSON.parse(log.substring(11));
+                
+                // FT Transfer event
+                if (eventData.standard === 'nep141' && eventData.event === 'ft_transfer') {
+                  eventData.data?.forEach(transfer => {
+                    // Проверяем что токены ПРИШЛИ к пользователю
+                    if (transfer.new_owner_id === userAddress || transfer.receiver_id === userAddress) {
+                      const tokenContract = tx.receiver_account_id;
+                      const amount = transfer.amount;
+                      
+                      // Извлекаем имя токена
+                      let tokenName = 'TOKEN';
+                      const parts = tokenContract.split('.');
+                      if (parts[0] === 'token' && parts.length >= 3) {
+                        tokenName = parts[1].toUpperCase();
+                      } else if (tokenContract.includes('meme-cooking')) {
+                        tokenName = parts[0].split('-')[0].toUpperCase();
+                      } else if (tokenContract.includes('.tkn.')) {
+                        tokenName = parts[0].toUpperCase();
+                      } else {
+                        tokenName = parts[0].toUpperCase();
+                      }
+                      
+                      tokenTransfers.push({
+                        token: tokenName,
+                        contract: tokenContract,
+                        action: 'receive',
+                        amount: amount,
+                        direction: 'in',
+                      });
+                      
+                      if (process.env.NODE_ENV !== 'production') {
+                        console.log(`[FT Received from receipt_outcome] ${tokenName}: ${amount} to ${userAddress}`);
+                      }
+                    }
+                  });
+                }
+              } catch (e) {
+                // Игнорируем ошибки парсинга
+              }
             }
           });
         }
@@ -709,6 +839,7 @@ bot.action(/^tx_(\d+)$/, async (ctx) => {
             name: t.token,
             contract: t.contract,
             amount: t.amount, // raw amount
+            direction: t.direction || 'unknown', // 'in' или 'out'
           });
         });
       }
@@ -724,44 +855,80 @@ bot.action(/^tx_(\d+)$/, async (ctx) => {
         detailsMessage += `━━━━━━━━━━━━━━━━━━\n`;
         
         const nearPrice = await getNearPrice().catch(() => null);
-        const usdValue = nearPrice ? ` ($${(totalNearSpent * nearPrice).toFixed(2)})` : '';
         
+        // Разделяем токены на исходящие и входящие
+        const tokensOut = tokensInvolved.filter(t => t.direction === 'out');
+        const tokensIn = tokensInvolved.filter(t => t.direction === 'in');
+        
+        // ОТДАНО
         detailsMessage += `📤 **Отдано:**\n`;
-        detailsMessage += `   ${totalNearSpent.toFixed(4)} NEAR${usdValue}\n\n`;
         
-        detailsMessage += `📥 **Получено:**\n`;
+        // Показываем NEAR если потрачен
+        if (totalNearSpent > 0) {
+          const nearUsd = nearPrice ? ` ($${(totalNearSpent * nearPrice).toFixed(2)})` : '';
+          detailsMessage += `   ${totalNearSpent.toFixed(4)} NEAR${nearUsd}\n`;
+        }
         
-        // Форматируем токены
-        for (const token of tokensInvolved) {
+        // Показываем исходящие токены
+        for (const token of tokensOut) {
           if (token.amount) {
             try {
-              // Получаем decimals для токена
               const decimals = getTokenDecimals(token.contract);
-              // Безопасно конвертируем в BigInt
               const rawAmount = BigInt(String(token.amount).replace(/[^0-9]/g, ''));
               const normalizedAmount = Number(rawAmount) / Math.pow(10, decimals);
               
-              // Форматируем количество красиво
-              let amountStr;
-              if (normalizedAmount >= 1000000) {
-                amountStr = (normalizedAmount / 1000000).toFixed(2) + 'M';
-              } else if (normalizedAmount >= 1000) {
-                amountStr = (normalizedAmount / 1000).toFixed(2) + 'K';
-              } else if (normalizedAmount >= 1) {
-                amountStr = normalizedAmount.toLocaleString('en-US', { maximumFractionDigits: 4 });
-              } else {
-                amountStr = normalizedAmount.toFixed(6).replace(/\.?0+$/, '');
-              }
-              
+              let amountStr = formatTokenAmount(normalizedAmount);
               detailsMessage += `   ${amountStr} ${token.name}\n`;
             } catch (error) {
-              // Если не удалось распарсить количество, просто показываем имя
               console.error('[Token Format Error]', error.message);
               detailsMessage += `   ${token.name}\n`;
             }
-          } else {
-            detailsMessage += `   ${token.name}\n`;
           }
+        }
+        
+        detailsMessage += '\n';
+        
+        // ПОЛУЧЕНО
+        detailsMessage += `📥 **Получено:**\n`;
+        
+        // Показываем NEAR если получен
+        if (totalNearReceived > 0) {
+          const nearUsd = nearPrice ? ` ($${(totalNearReceived * nearPrice).toFixed(2)})` : '';
+          detailsMessage += `   ${totalNearReceived.toFixed(4)} NEAR${nearUsd}\n`;
+        }
+        
+        // Показываем входящие токены
+        let hasIncomingWithAmount = false;
+        if (tokensIn.length > 0) {
+          for (const token of tokensIn) {
+            if (token.amount) {
+              try {
+                const decimals = getTokenDecimals(token.contract);
+                const rawAmount = BigInt(String(token.amount).replace(/[^0-9]/g, ''));
+                const normalizedAmount = Number(rawAmount) / Math.pow(10, decimals);
+                
+                let amountStr = formatTokenAmount(normalizedAmount);
+                detailsMessage += `   ${amountStr} ${token.name}\n`;
+                hasIncomingWithAmount = true;
+              } catch (error) {
+                console.error('[Token Format Error]', error.message);
+                detailsMessage += `   ${token.name}\n`;
+              }
+            } else {
+              detailsMessage += `   ${token.name}\n`;
+            }
+          }
+        } else {
+          // Если нет входящих токенов, показываем имена из всех токенов
+          const allTokenNames = new Set(tokensInvolved.map(t => t.name));
+          if (allTokenNames.size > 0) {
+            detailsMessage += `   ${Array.from(allTokenNames).join(', ')}\n`;
+          }
+        }
+        
+        // Если не удалось получить точное количество, добавляем примечание
+        if (!hasIncomingWithAmount && tokensInvolved.length > 0) {
+          detailsMessage += `   _Точное количество см. в деталях ниже_\n`;
         }
         
         detailsMessage += '\n';
@@ -790,11 +957,12 @@ bot.action(/^tx_(\d+)$/, async (ctx) => {
     }
     
     detailsMessage += `━━━━━━━━━━━━━━━━━━\n`;
-    detailsMessage += `🔗 **Transaction Hash:**\n\`${tx.txHashes[0]}\``;
+    detailsMessage += `🔗 **Transaction Hash:**\n\`${tx.txHashes[0]}\`\n\n`;
+    detailsMessage += `[Посмотреть детали на Nearblocks](https://nearblocks.io/txns/${tx.txHashes[0]})`;
     
     // Отправляем детали
     await ctx.answerCbQuery('✅');
-    await ctx.replyWithMarkdown(detailsMessage);
+    await ctx.replyWithMarkdown(detailsMessage, { disable_web_page_preview: true });
     
   } catch (error) {
     console.error('Ошибка в tx_ callback:', error.message);

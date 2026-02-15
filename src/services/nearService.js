@@ -521,6 +521,22 @@ async function getTransactionHistory(address) {
 }
 
 /**
+ * Получает детальную информацию о транзакции с полными логами
+ * @param {string} txHash - Hash транзакции
+ * @returns {Promise<Object>} Детали транзакции с логами
+ */
+async function getTransactionDetails(txHash) {
+  try {
+    const url = `${NEARBLOCKS_API_URL}/txns/${txHash}`;
+    const response = await axios.get(url, { timeout: API_TIMEOUT });
+    return response.data?.receipts || [];
+  } catch (error) {
+    console.error('getTransactionDetails error:', error.message);
+    return [];
+  }
+}
+
+/**
  * Получает актуальный курс NEAR к USD через CoinGecko API.
  * @returns {Promise<number>} Цена NEAR в USD
  */
@@ -900,6 +916,7 @@ module.exports = {
   getTokensWithPrices,
   getStakingBalance,
   getTransactionHistory,
+  getTransactionDetails,
   getHotClaimStatus,
   getNearPrice,
   TOKEN_DECIMALS_MAP,
