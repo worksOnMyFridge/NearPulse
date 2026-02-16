@@ -546,6 +546,125 @@ async function getTransactionHistory(address, limit = 100) {
 }
 
 /**
+ * Token Transfers (tokentxns) — приходы/уходы токенов, свапы (-10 NEAR, +500 HOT)
+ * Без кеширования: _=${Date.now()} для актуальных данных
+ */
+async function getTokenTransactions(address, perPage = 20, page = 1) {
+  await rateLimitDelay();
+  try {
+    const encoded = encodeURIComponent(address);
+    const cacheBust = Date.now();
+    const baseUrl = `${NEARBLOCKS_API_URL}/account/${encoded}/tokentxns`;
+    const url = nbUrl(`${baseUrl}?page=${page}&per_page=${perPage}&order=desc&_=${cacheBust}`);
+    const response = await axios.get(url, { timeout: API_TIMEOUT, headers: nearblocksHeaders });
+    const rows = response.data?.txns ?? response.data?.token_txns ?? response.data ?? [];
+    const arr = Array.isArray(rows) ? rows : [];
+    console.log(`[tokentxns] Получено ${arr.length} записей для ${address}`);
+    return arr;
+  } catch (error) {
+    console.error('[tokentxns] getTokenTransactions error:', error.message);
+    return [];
+  }
+}
+
+/** Деноминация по контракту (для tokentxns) */
+const TOKENTXN_DECIMALS = {
+  'wrap.near': 24,
+  'near': 24,
+  'game.hot.tg': 6,
+  'token.hot.tg': 6,
+};
+
+function formatTokenTxnAmount(rawAmount, ftContract) {
+  const decimals = TOKENTXN_DECIMALS[ftContract] ?? 24;
+  const n = parseFloat(rawAmount || '0') / Math.pow(10, decimals);
+  return n;
+}
+
+/**
+ * Преобразует tokentxns в формат для отображения (свапы, переводы токенов)
+ * Если predecessor === account → отправлено, если receiver === account → получено
+ */
+function formatTokenTxnsForDisplay(tokenTxns, address, nearPrice = null) {
+  if (!Array.isArray(tokenTxns) || tokenTxns.length === 0) return [];
+
+  // Группируем по txhash
+  const byHash = {};
+  tokenTxns.forEach(t => {
+    const hash = t.txhash || t.transaction_hash || t.hash;
+    if (!hash) return;
+    if (!byHash[hash]) byHash[hash] = [];
+    byHash[hash].push(t);
+  });
+
+  return Object.entries(byHash)
+    .map(([hash, group]) => {
+      const first = group[0];
+      const ts = parseInt(first.block_timestamp || first.block_time || 0);
+      const timestampMs = ts > 1e15 ? Math.floor(ts / 1e6) : ts;
+
+      const parts = [];
+      let icon = '📝';
+      let type = 'contract';
+      let totalNear = 0;
+      let hasHot = false;
+      let hasMoon = false;
+
+      group.forEach(t => {
+        const oldOwner = t.token_old_owner_account_id || t.old_owner_id || t.from_account_id;
+        const newOwner = t.token_new_owner_account_id || t.new_owner_id || t.to_account_id;
+        const ft = (t.ft_contract || t.token_contract || '').toLowerCase();
+        const symbol = (t.token_symbol || t.symbol || t.ft_metadata?.symbol || 'NEAR').toUpperCase();
+        const raw = t.amount || t.deposit || '0';
+        const amount = formatTokenTxnAmount(raw, ft);
+
+        const isOutgoing = oldOwner === address;
+        const isIncoming = newOwner === address;
+        if (!isOutgoing && !isIncoming) return;
+
+        if (ft.includes('hot') || ft.includes('game.hot')) {
+          hasHot = true;
+          parts.push(isOutgoing ? `-${amount.toFixed(0)} ${symbol}` : `+${amount.toFixed(0)} ${symbol}`);
+        } else if (ft.includes('harvest-moon') || symbol === 'MOON') {
+          hasMoon = true;
+          parts.push(isOutgoing ? `-${amount.toFixed(2)} ${symbol}` : `+${amount.toFixed(2)} ${symbol}`);
+        } else if (symbol === 'NEAR' || ft.includes('wrap.near')) {
+          totalNear += isIncoming ? amount : -amount;
+          parts.push(isIncoming ? `+${amount.toFixed(2)} NEAR` : `-${amount.toFixed(2)} NEAR`);
+        } else {
+          parts.push(isIncoming ? `+${amount.toFixed(2)} ${symbol}` : `-${amount.toFixed(2)} ${symbol}`);
+        }
+      });
+
+      if (parts.length === 0) return null;
+      if (hasHot) { icon = '🔥'; type = 'hot_claim'; }
+      else if (hasMoon) { icon = '🎁'; type = 'claim'; }
+      else if (parts.length > 1) { icon = '🔄'; type = 'swap'; }
+      else if (totalNear > 0) { icon = '📥'; type = 'transfer_in'; }
+      else if (totalNear < 0) { icon = '📤'; type = 'transfer_out'; }
+      else { icon = '🪙'; type = 'token_in'; }
+
+      const description = parts.join(', ');
+      const displayAmount = Math.abs(totalNear);
+
+      return {
+        hash,
+        type,
+        icon,
+        description,
+        amount: displayAmount,
+        amountFormatted: totalNear.toFixed(2),
+        usdValue: nearPrice && displayAmount > 0.01 ? displayAmount * nearPrice : null,
+        timestamp: timestampMs,
+        tokenName: null,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+    .slice(0, 20);
+}
+
+/**
  * Получает детальную информацию о транзакции с полными логами
  * @param {string} txHash - Hash транзакции
  * @returns {Promise<Object>} Детали транзакции с логами
@@ -1321,6 +1440,8 @@ module.exports = {
   getTokensWithPrices,
   getStakingBalance,
   getTransactionHistory,
+  getTokenTransactions,
+  formatTokenTxnsForDisplay,
   getTransactionDetails,
   getHotClaimStatus,
   getNearPrice,

@@ -8,6 +8,8 @@ const {
   getStakingBalance,
   getNearPrice,
   getTransactionHistory,
+  getTokenTransactions,
+  formatTokenTxnsForDisplay,
   getHotClaimStatus,
   getAnalytics,
   getNFTBalance,
@@ -135,34 +137,30 @@ app.get(['/api/health', '/health'], (req, res) => {
 app.get(['/api/transactions/:address', '/transactions/:address'], async (req, res) => {
   try {
     const { address } = req.params;
-    const limit = parseInt(req.query.limit) || 10; // По умолчанию 10 транзакций
+    const limit = parseInt(req.query.limit) || 10;
     
-    const [txns, nearPrice] = await Promise.all([
-      getTransactionHistory(address),
+    const [tokenTxns, nearPrice] = await Promise.all([
+      getTokenTransactions(address, limit * 3, 1), // берём с запасом
       getNearPrice().catch(() => null),
     ]);
     
-    // Группируем по transaction_hash и берём только нужное количество
-    const groupedTxns = {};
-    txns.forEach(tx => {
-      const hash = tx.transaction_hash;
-      if (!groupedTxns[hash]) {
-        groupedTxns[hash] = [];
-      }
-      groupedTxns[hash].push(tx);
-    });
-
-    const uniqueTxns = Object.entries(groupedTxns)
-      .map(([hash, group]) => ({
-        hash,
-        timestamp: group[0].block_timestamp,
-        transactions: group
-      }))
-      .sort((a, b) => parseInt(b.timestamp) - parseInt(a.timestamp))
-      .slice(0, limit);
+    let analyzed = formatTokenTxnsForDisplay(tokenTxns, address, nearPrice);
     
-    // Анализируем каждую транзакцию
-    const analyzed = uniqueTxns.map(txGroup => {
+    if (analyzed.length === 0) {
+      // Fallback на txns если tokentxns пуст
+      const txns = await getTransactionHistory(address);
+      const groupedTxns = {};
+      txns.forEach(tx => {
+        const hash = tx.transaction_hash;
+        if (!groupedTxns[hash]) groupedTxns[hash] = [];
+        groupedTxns[hash].push(tx);
+      });
+      const uniqueTxns = Object.entries(groupedTxns)
+        .map(([hash, group]) => ({ hash, timestamp: group[0].block_timestamp, transactions: group }))
+        .sort((a, b) => parseInt(b.timestamp) - parseInt(a.timestamp))
+        .slice(0, limit);
+      
+      analyzed = uniqueTxns.map(txGroup => {
       const group = txGroup.transactions;
       const relevantTxs = group.filter(tx => 
         tx.receiver_account_id !== 'system' && 
@@ -261,10 +259,12 @@ app.get(['/api/transactions/:address', '/transactions/:address'], async (req, re
         tokenName,
       };
     }).filter(Boolean);
+    }
     
+    const transactions = analyzed.slice(0, limit);
     res.json({
       address,
-      transactions: analyzed,
+      transactions,
       nearPrice,
       timestamp: Date.now(),
     });
