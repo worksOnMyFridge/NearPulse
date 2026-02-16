@@ -21,6 +21,8 @@ CORS(app, origins=["https://near-pulse.vercel.app", "http://localhost:5173"])
 
 NEAR_RPC_URL = "https://rpc.mainnet.near.org"
 NEARBLOCKS_API = "https://api.nearblocks.io/v1"
+NEARBLOCKS_API_KEY = os.environ.get("NEARBLOCKS_API_KEY", "")
+FASTNEAR_API = "https://api.fastnear.com/v1"
 INTEAR_API = "https://prices.intear.tech"
 COINGECKO_API = "https://api.coingecko.com/api/v3"
 REF_FINANCE_API = "https://indexer.ref.finance"
@@ -85,21 +87,55 @@ MAJOR_TOKENS = [
     "c02aaa39b223fe8d0a0e5c4f27ead9083c756cc2.factory.bridge.near",
 ]
 
-# ─── In-memory cache (30s TTL) ──────────────────────────────────────────────
+# ─── Cache (Upstash Redis with in-memory fallback) ──────────────────────────
 
-_cache = {}
-CACHE_TTL = 30
+UPSTASH_REDIS_URL = os.environ.get("UPSTASH_REDIS_URL", "")
+CACHE_TTL = 300  # 5 minutes
+
+_redis_client = None
+_mem_cache = {}
+
+try:
+    if UPSTASH_REDIS_URL:
+        import redis as redis_lib
+        _redis_client = redis_lib.from_url(UPSTASH_REDIS_URL, decode_responses=True, socket_timeout=3)
+        _redis_client.ping()
+        print("[Cache] Upstash Redis connected")
+    else:
+        print("[Cache] No UPSTASH_REDIS_URL, using in-memory cache")
+except Exception as e:
+    print(f"[Cache] Redis connection failed ({e}), using in-memory fallback")
+    _redis_client = None
+
+
+def nearblocks_headers():
+    headers = {}
+    if NEARBLOCKS_API_KEY:
+        headers["Authorization"] = f"Bearer {NEARBLOCKS_API_KEY}"
+    return headers
 
 
 def cached(key):
-    entry = _cache.get(key)
+    if _redis_client:
+        try:
+            raw = _redis_client.get(f"np:{key}")
+            if raw:
+                return json.loads(raw)
+        except Exception:
+            pass
+    entry = _mem_cache.get(key)
     if entry and time.time() - entry["ts"] < CACHE_TTL:
         return entry["data"]
     return None
 
 
-def set_cache(key, data):
-    _cache[key] = {"data": data, "ts": time.time()}
+def set_cache(key, data, ttl=CACHE_TTL):
+    _mem_cache[key] = {"data": data, "ts": time.time()}
+    if _redis_client:
+        try:
+            _redis_client.setex(f"np:{key}", ttl, json.dumps(data, default=str))
+        except Exception:
+            pass
 
 
 # ─── NEAR Data Functions ────────────────────────────────────────────────────
@@ -153,7 +189,7 @@ def get_near_price():
 def get_staking_balance(address):
     try:
         url = f"{NEARBLOCKS_API}/kitwallet/staking-deposits/{http_requests.utils.quote(address)}"
-        r = http_requests.get(url, timeout=API_TIMEOUT)
+        r = http_requests.get(url, headers=nearblocks_headers(), timeout=API_TIMEOUT)
         data = r.json()
         deposits = data if isinstance(data, list) else data.get("data", data.get("deposits", []))
         if not isinstance(deposits, list):
@@ -243,7 +279,7 @@ def get_hot_claim_status(address):
 def get_all_tokens(address):
     try:
         url = f"{NEARBLOCKS_API}/account/{address}/inventory"
-        r = http_requests.get(url, timeout=API_TIMEOUT)
+        r = http_requests.get(url, headers=nearblocks_headers(), timeout=API_TIMEOUT)
         tokens = r.json().get("inventory", {}).get("fts", [])
         result = []
         for t in tokens:
@@ -392,7 +428,7 @@ def get_tokens_with_prices(address, min_usd=1):
 def get_token_balance(address, token_id="game.hot.tg"):
     try:
         url = f"{NEARBLOCKS_API}/account/{address}/inventory"
-        r = http_requests.get(url, timeout=API_TIMEOUT)
+        r = http_requests.get(url, headers=nearblocks_headers(), timeout=API_TIMEOUT)
         fts = r.json().get("inventory", {}).get("fts", [])
         token = next((t for t in fts if t.get("contract") == token_id), None)
         if token:
@@ -403,13 +439,52 @@ def get_token_balance(address, token_id="game.hot.tg"):
         return 0
 
 
+# ─── NFT via FastNEAR ────────────────────────────────────────────────────────
+
+
+def get_user_nfts(account_id):
+    """Fetch NFT contracts + token counts via FastNEAR API."""
+    try:
+        url = f"{FASTNEAR_API}/account/{account_id}/nft"
+        r = http_requests.get(url, timeout=API_TIMEOUT)
+        if r.status_code != 200:
+            print(f"[FastNEAR NFT] status {r.status_code}")
+            return []
+        data = r.json()
+        # FastNEAR returns { "contract_id": [...token_ids] } or list of contracts
+        tokens = data.get("tokens", data) if isinstance(data, dict) else data
+        nfts = []
+        if isinstance(tokens, dict):
+            for contract_id, token_ids in tokens.items():
+                count = len(token_ids) if isinstance(token_ids, list) else 1
+                nfts.append({
+                    "contract": contract_id,
+                    "count": count,
+                    "tokenIds": token_ids[:10] if isinstance(token_ids, list) else [],
+                })
+        elif isinstance(tokens, list):
+            for item in tokens:
+                if isinstance(item, dict):
+                    nfts.append({
+                        "contract": item.get("contract_id", item.get("contract", "")),
+                        "count": item.get("count", item.get("last_update_block_height", 1)),
+                        "tokenIds": item.get("token_ids", item.get("tokens", []))[:10],
+                    })
+                elif isinstance(item, str):
+                    nfts.append({"contract": item, "count": 0, "tokenIds": []})
+        return nfts
+    except Exception as e:
+        print(f"[get_user_nfts] Error: {e}")
+        return []
+
+
 # ─── Transaction Analysis ───────────────────────────────────────────────────
 
 
 def get_transaction_history(address):
     try:
         url = f"{NEARBLOCKS_API}/account/{address}/txns"
-        r = http_requests.get(url, params={"per_page": 50, "order": "desc"}, timeout=API_TIMEOUT)
+        r = http_requests.get(url, params={"per_page": 50, "order": "desc"}, headers=nearblocks_headers(), timeout=API_TIMEOUT)
         txns = r.json().get("txns", [])
         if isinstance(txns, dict):
             txns = list(txns.values())
@@ -809,6 +884,27 @@ def api_stats(account_id):
         stats["nearPrice"] = near_price
         set_cache(cache_key, stats)
         return jsonify(stats)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/nft/<account_id>")
+def api_nft(account_id):
+    cache_key = f"nft:{account_id}"
+    c = cached(cache_key)
+    if c:
+        return jsonify(c)
+
+    try:
+        nfts = get_user_nfts(account_id)
+        result = {
+            "account": account_id,
+            "nfts": nfts,
+            "totalContracts": len(nfts),
+            "totalNfts": sum(n.get("count", 0) for n in nfts),
+        }
+        set_cache(cache_key, result)
+        return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
