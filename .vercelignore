@@ -1,4 +1,7 @@
-node_modules
+src/
+api.py
+requirements.txt
+node_modules/
 .env
 *.log
-.vercel
+railway.toml

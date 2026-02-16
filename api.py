@@ -13,6 +13,9 @@ from datetime import datetime, timezone
 from collections import defaultdict
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = Flask(__name__)
 CORS(app, origins=["https://near-pulse.vercel.app", "http://localhost:5173"])
@@ -917,6 +920,6 @@ def health():
 # ─── Main ───────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    port = int(os.environ.get("API_PORT", 3001))
+    port = int(os.environ.get("PORT", os.environ.get("API_PORT", 3001)))
     print(f"NearPulse API starting on port {port}")
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0", port=port, debug=False)
