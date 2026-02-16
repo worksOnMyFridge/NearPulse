@@ -938,10 +938,17 @@ def get_analytics(account_id):
     # Заглушка - вернем mock данные
     return jsonify({
         "period": period,
-        "gasUsed": 0.5,
-        "transactions": 42,
-        "activeContracts": ["game.hot.tg", "ref.finance"],
-        "topSpender": "game.hot.tg"
+        "totalGas": 0.5,
+        "totalTransactions": 42,
+        "contractBreakdown": {
+            "game.hot.tg": 28,
+            "ref.finance": 14
+        },
+        "dailyActivity": [
+            {"date": "2024-02-10", "count": 5},
+            {"date": "2024-02-11", "count": 8},
+            {"date": "2024-02-12", "count": 6}
+        ]
     })
 
 
