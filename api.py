@@ -920,6 +920,6 @@ def health():
 # ─── Main ───────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", os.environ.get("API_PORT", 3001)))
+    port = int(os.getenv("PORT", 8080))
     print(f"NearPulse API starting on port {port}")
     app.run(host="0.0.0.0", port=port, debug=False)
