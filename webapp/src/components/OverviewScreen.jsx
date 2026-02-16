@@ -114,21 +114,6 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
 
   return (
     <div className="space-y-4">
-      {/* Селектор периодов */}
-      <div className="flex gap-2 overflow-x-auto pb-2">
-        {[{ key: 'week', label: '7 дней' }, { key: 'month', label: '30 дней' }, { key: 'all', label: 'Всё время' }].map(period => (
-          <button
-            key={period.key}
-            onClick={() => onPeriodChange(period.key)}
-            className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
-              selectedPeriod === period.key ? 'bg-blue-500 text-white shadow-lg' : 'glass-card text-primary'
-            }`}
-          >
-            {period.label}
-          </button>
-        ))}
-      </div>
-
       {/* Карточка портфеля */}
       {balanceData && (
         <button

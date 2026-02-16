@@ -10,6 +10,15 @@ import 'dayjs/locale/ru';
 dayjs.extend(relativeTime);
 dayjs.locale('ru');
 
+function normalizeTimestamp(ts) {
+  if (!ts) return 0;
+  const n = Number(ts);
+  if (n > 1e18) return n / 1e6;   // наносекунды → миллисекунды
+  if (n > 1e15) return n / 1e3;   // микросекунды → миллисекунды
+  if (n > 1e12) return n;          // уже миллисекунды
+  return n * 1000;                  // секунды → миллисекунды
+}
+
 export default function TransactionsScreen() {
   const { address } = useTelegram();
   const [transactions, setTransactions] = useState([]);
@@ -139,7 +148,7 @@ export default function TransactionsScreen() {
                 {/* Time */}
                 <div className="flex items-center gap-1 text-xs text-secondary mb-3">
                   <Clock className="w-3 h-3" />
-                  <span>{dayjs(tx.timestamp).fromNow()}</span>
+                  <span>{dayjs(normalizeTimestamp(tx.timestamp)).fromNow()}</span>
                 </div>
 
                 {/* Action Buttons - появляются при hover */}
