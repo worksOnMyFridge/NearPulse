@@ -562,9 +562,97 @@ async function getTokenTransactions(address, perPage = 20, page = 1) {
     console.log(`[tokentxns] Получено ${arr.length} записей для ${address}`);
     return arr;
   } catch (error) {
-    console.error('[tokentxns] getTokenTransactions error:', error.message);
+    if (error.response?.status === 404) {
+      console.warn('[tokentxns] Endpoint 404 — используем fallback txns');
+    } else {
+      console.error('[tokentxns] getTokenTransactions error:', error.message);
+    }
     return [];
   }
+}
+
+/**
+ * Форматирует txns (из getTransactionHistory) для отображения.
+ * Fallback когда tokentxns возвращает 404.
+ */
+function formatTxnsForDisplay(txns, address, nearPrice = null) {
+  if (!Array.isArray(txns) || txns.length === 0) return [];
+  const grouped = {};
+  txns.forEach(tx => {
+    const hash = tx.transaction_hash;
+    if (!grouped[hash]) grouped[hash] = [];
+    grouped[hash].push(tx);
+  });
+  const unique = Object.entries(grouped)
+    .map(([hash, group]) => ({ hash, timestamp: group[0].block_timestamp, transactions: group }))
+    .sort((a, b) => parseInt(b.timestamp) - parseInt(a.timestamp))
+    .slice(0, 20);
+  return unique.map(txGroup => {
+    const group = txGroup.transactions.filter(tx =>
+      tx.receiver_account_id !== 'system' && tx.predecessor_account_id !== 'system'
+    );
+    if (group.length === 0) return null;
+    const firstTx = group[0];
+    const contracts = group.map(tx => tx.receiver_account_id);
+    let totalNear = 0;
+    group.forEach(tx => {
+      const deposit = tx.actions_agg?.deposit ? parseFloat(tx.actions_agg.deposit) / 1e24 : 0;
+      if (tx.predecessor_account_id === address) totalNear += deposit;
+      else if (tx.receiver_account_id === address) totalNear -= deposit;
+    });
+    const hasHot = contracts.some(c => c.includes('hot.tg') || c === 'game.hot.tg');
+    const hasMoon = contracts.some(c => c.includes('harvest-moon'));
+    const hasRef = contracts.some(c => c.includes('ref-finance'));
+    const hasRhea = contracts.some(c => c.includes('rhea'));
+    const hasTokenTransfer = contracts.some(c => c.includes('.tkn.') || c.includes('token.') || c.includes('meme-cooking'));
+    let type = 'contract', icon = '📝', description = 'Вызов контракта', tokenName = null;
+    if (hasHot) { type = 'hot_claim'; icon = '🔥'; description = 'Claim HOT'; }
+    else if (hasMoon) { type = 'claim'; icon = '🎁'; description = 'Claim MOON'; }
+    else if ((hasRef || hasRhea) && group.length > 1) { type = 'swap'; icon = '🔄'; description = hasRef ? 'Swap (Ref Finance)' : 'Swap (RHEA)'; }
+    else if (Math.abs(totalNear) > 0.01 && !hasTokenTransfer) {
+      const isOut = totalNear > 0;
+      type = isOut ? 'transfer_out' : 'transfer_in';
+      icon = isOut ? '📤' : '📥';
+      const other = isOut ? firstTx.receiver_account_id : firstTx.predecessor_account_id;
+      const short = other.length > 20 ? other.substring(0, 8) + '...' + other.slice(-6) : other;
+      description = isOut ? `Отправлено → ${short}` : `Получено ← ${short}`;
+    } else if (hasTokenTransfer) {
+      const tc = contracts.find(c => c.includes('.tkn.') || c.includes('token.') || c.includes('meme-cooking'));
+      if (tc) {
+        const p = tc.split('.');
+        tokenName = (p[0] === 'token' && p.length >= 3) ? p[1].toUpperCase() : p[0].toUpperCase();
+      }
+      const isOut = firstTx.predecessor_account_id === address;
+      type = isOut ? 'token_out' : 'token_in';
+      icon = '🪙';
+      description = isOut ? `Отправлен токен ${tokenName || 'Token'}` : `Получен токен ${tokenName || 'Token'}`;
+    }
+    const tsRaw = parseInt(txGroup.timestamp);
+    const tsMs = tsRaw > 1e15 ? Math.floor(tsRaw / 1e6) : tsRaw;
+    return {
+      hash: txGroup.hash,
+      type, icon, description,
+      amount: Math.abs(totalNear),
+      amountFormatted: totalNear.toFixed(2),
+      usdValue: nearPrice && Math.abs(totalNear) > 0.01 ? Math.abs(totalNear) * nearPrice : null,
+      timestamp: tsMs,
+      tokenName,
+    };
+  }).filter(Boolean);
+}
+
+/**
+ * Единая точка: транзакции для отображения.
+ * Пробует tokentxns, при 404/пусто — fallback на txns.
+ */
+async function getTransactionsForDisplay(address, nearPrice = null, limit = 20) {
+  const tokenTxns = await getTokenTransactions(address, limit * 2, 1);
+  let result = formatTokenTxnsForDisplay(tokenTxns, address, nearPrice);
+  if (result.length === 0) {
+    const txns = await getTransactionHistory(address);
+    result = formatTxnsForDisplay(txns, address, nearPrice);
+  }
+  return result.slice(0, limit);
 }
 
 /** Деноминация по контракту (для tokentxns) */
@@ -1442,6 +1530,8 @@ module.exports = {
   getTransactionHistory,
   getTokenTransactions,
   formatTokenTxnsForDisplay,
+  formatTxnsForDisplay,
+  getTransactionsForDisplay,
   getTransactionDetails,
   getHotClaimStatus,
   getNearPrice,

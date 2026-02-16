@@ -13,8 +13,7 @@ const {
   getTokensWithPrices,
   getStakingBalance,
   getTransactionHistory,
-  getTokenTransactions,
-  formatTokenTxnsForDisplay,
+  getTransactionsForDisplay,
   getHotClaimStatus,
   getNearPrice,
   TOKEN_DECIMALS_MAP,
@@ -350,14 +349,10 @@ bot.command('transactions', async (ctx) => {
   try {
     const loadingMsg = await ctx.reply('⏳ Загружаю историю транзакций...');
 
-    const [tokenTxns, nearPrice] = await Promise.all([
-      getTokenTransactions(address, 30, 1),
-      getNearPrice().catch(() => null),
-    ]);
+    const nearPrice = await getNearPrice().catch(() => null);
+    const analyzed = await getTransactionsForDisplay(address, nearPrice, 10);
 
     await ctx.telegram.deleteMessage(ctx.chat.id, loadingMsg.message_id);
-
-    const analyzed = formatTokenTxnsForDisplay(tokenTxns, address, nearPrice);
 
     if (!analyzed || analyzed.length === 0) {
       await ctx.reply('📭 История транзакций пуста или недоступна.');
