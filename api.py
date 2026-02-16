@@ -912,6 +912,15 @@ def api_nft(account_id):
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/", methods=["GET"])
+def index():
+    return jsonify({
+        "status": "ok",
+        "service": "NearPulse API",
+        "version": "2.0.0"
+    })
+
+
 @app.route("/api/health")
 def health():
     return jsonify({"status": "ok", "timestamp": int(time.time())})
