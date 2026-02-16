@@ -1,6 +1,5 @@
 {
-  "installCommand": "cd webapp && npm install",
-  "buildCommand": "cd webapp && npx vite build",
+  "buildCommand": "cd webapp && npm install && npm run build",
   "outputDirectory": "webapp/dist",
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "installCommand": "echo 'Skip root install'"
 }
