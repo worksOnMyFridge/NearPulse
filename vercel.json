@@ -1,5 +1,6 @@
 {
-  "buildCommand": "cd webapp && npm run build",
+  "installCommand": "cd webapp && npm install",
+  "buildCommand": "cd webapp && npx vite build",
   "outputDirectory": "webapp/dist",
-  "installCommand": "cd webapp && npm install"
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }
