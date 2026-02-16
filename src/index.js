@@ -596,13 +596,20 @@ async function runHotClaimMonitor() {
 
 async function launchBotInBackground() {
   const maxRetries = 10;
-  const baseDelay = 5000; // 5 секунд между попытками
+  const baseDelay = 8000; // 8 секунд между попытками (даём старому контейнеру завершиться)
+  const isRailway = !!process.env.RAILWAY_ENVIRONMENT;
+
+  // На Railway: ждём 15 сек перед первой попыткой (старый контейнер освобождает токен)
+  if (isRailway) {
+    console.log('⏳ [Railway] Ждём 15 сек перед подключением к Telegram...');
+    await new Promise(r => setTimeout(r, 15000));
+  }
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       // Принудительно сбрасываем webhook перед запуском
       await bot.telegram.deleteWebhook({ drop_pending_updates: true });
-      await new Promise(r => setTimeout(r, 1000));
+      await new Promise(r => setTimeout(r, 2000));
       await bot.launch({ dropPendingUpdates: true });
       console.log(`✅ NearPulse bot started successfully (attempt ${attempt})`);
 
