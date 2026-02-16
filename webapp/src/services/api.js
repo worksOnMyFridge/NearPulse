@@ -106,7 +106,7 @@ export async function fetchAnalytics(address, period = 'week') {
     return analyticsCache.data;
   }
   try {
-    const response = await fetch(`${API_BASE_URL}/api/analytics/${address}?period=${period}`);
+    const response = await fetch(`${API_BASE_URL}/api/stats/${address}?period=${period}`);
     
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
