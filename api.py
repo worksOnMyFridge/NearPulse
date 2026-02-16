@@ -18,7 +18,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app, origins=["https://near-pulse.vercel.app", "http://localhost:5173"])
+CORS(app, origins=[
+    "https://nearpulseapp.netlify.app",
+    "https://near-pulse.vercel.app",
+    "http://localhost:5173"
+])
 
 # ─── Constants ──────────────────────────────────────────────────────────────
 
