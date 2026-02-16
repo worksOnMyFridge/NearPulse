@@ -4,7 +4,7 @@
 
 // Используем VITE_API_URL из переменных окружения
 // Fallback на Railway production URL
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://nearpulse-bot-production.up.railway.app';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://nearpulse.onrender.com';
 
 /**
  * Получить баланс аккаунта
@@ -36,12 +36,30 @@ export async function fetchUserBalance(address) {
 export async function fetchTransactions(address, limit = 10) {
   try {
     const response = await fetch(`${API_BASE_URL}/api/transactions/${address}?limit=${limit}`);
-    
+
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
-    
+
     const data = await response.json();
+    const nearPrice = data.nearPrice || 0;
+
+    // Маппим поля API → формат компонента TransactionsScreen
+    if (data.transactions) {
+      data.transactions = data.transactions.map(tx => {
+        const amount = tx.allNearSpent || tx.allNearReceived || 0;
+        return {
+          ...tx,
+          hash: tx.id || tx.hash || '',
+          description: tx.action || tx.description || 'Транзакция',
+          amount: amount,
+          amountFormatted: amount.toFixed(4),
+          usdValue: amount > 0 && nearPrice ? amount * nearPrice : null,
+          tokenName: tx.tokenTransfers?.[0]?.token || null,
+        };
+      });
+    }
+
     return data;
   } catch (error) {
     console.error('Error fetching transactions:', error);

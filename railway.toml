@@ -2,5 +2,5 @@
 builder = "nixpacks"
 
 [deploy]
-startCommand = "python api.py"
+startCommand = "node src/index.js"
 restartPolicyType = "always"

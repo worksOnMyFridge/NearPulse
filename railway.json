@@ -4,7 +4,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "python api.py",
+    "startCommand": "node src/index.js",
     "restartPolicyType": "ALWAYS"
   }
 }

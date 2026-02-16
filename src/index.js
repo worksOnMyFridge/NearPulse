@@ -752,15 +752,8 @@ async function main() {
     console.error('DB init error (non-fatal):', e.message);
   }
 
-  // 1. Запускаем Express API СРАЗУ — Railway должен видеть порт
-  const apiApp = require('./api');
-  const API_PORT = process.env.PORT || process.env.API_PORT || 3001;
-  apiApp.listen(API_PORT, '0.0.0.0', () => {
-    console.log(`🚀 NearPulse API запущен на 0.0.0.0:${API_PORT}`);
-  });
-
-  // 2. Запускаем бота в фоне — не блокируем процесс, не крашим при ошибке
-  launchBotInBackground();
+  // API теперь на Render (Python api.py) — здесь только бот
+  await launchBotInBackground();
 }
 
 process.on('uncaughtException', (err) => {

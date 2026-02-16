@@ -1,1 +1,1 @@
-web: python api.py
+worker: node src/index.js
