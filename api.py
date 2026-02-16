@@ -930,6 +930,21 @@ def health():
     return jsonify({"status": "ok", "timestamp": int(time.time())})
 
 
+@app.route("/api/analytics/<account_id>", methods=["GET"])
+def get_analytics(account_id):
+    """Get analytics for account"""
+    period = request.args.get("period", "week")
+
+    # Заглушка - вернем mock данные
+    return jsonify({
+        "period": period,
+        "gasUsed": 0.5,
+        "transactions": 42,
+        "activeContracts": ["game.hot.tg", "ref.finance"],
+        "topSpender": "game.hot.tg"
+    })
+
+
 # ─── Main ───────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
