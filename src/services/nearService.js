@@ -6,8 +6,15 @@ const NEARBLOCKS_API_KEY = process.env.NEARBLOCKS_API_KEY;
 
 // Заголовки для Nearblocks API (с ключом для избежания 429)
 const nearblocksHeaders = NEARBLOCKS_API_KEY
-  ? { Authorization: `Bearer ${NEARBLOCKS_API_KEY}` }
+  ? { 'Authorization': `Bearer ${NEARBLOCKS_API_KEY}` }
   : {};
+
+// Добавляет API key к Nearblocks URL как query param (fallback)
+function nbUrl(baseUrl) {
+  if (!NEARBLOCKS_API_KEY) return baseUrl;
+  const sep = baseUrl.includes('?') ? '&' : '?';
+  return `${baseUrl}${sep}apikey=${NEARBLOCKS_API_KEY}`;
+}
 
 const YOCTO_NEAR = 1e24;
 const NEAR_RPC_URL = 'https://rpc.mainnet.near.org';
@@ -866,7 +873,7 @@ async function getRefFinancePrices(contracts) {
   try {
     // Ref Finance Indexer API для получения цен
     const url = 'https://indexer.ref.finance/list-token-price';
-    const response = await axios.get(url, { timeout: API_TIMEOUT, headers: nearblocksHeaders });
+    const response = await axios.get(url, { timeout: API_TIMEOUT });
     
     const refPrices = response.data || {};
     
@@ -937,7 +944,7 @@ async function getIntearPrices(contracts) {
   try {
     // Intear Token Indexer API - совместим с Ref Finance, но покрывает больше токенов
     const url = `${INTEAR_API_URL}/list-token-price`;
-    const response = await axios.get(url, { timeout: API_TIMEOUT, headers: nearblocksHeaders });
+    const response = await axios.get(url, { timeout: API_TIMEOUT });
     
     const intearPrices = response.data || {};
     

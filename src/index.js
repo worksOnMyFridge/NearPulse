@@ -746,7 +746,11 @@ async function launchBotInBackground() {
 }
 
 async function main() {
-  getDb();
+  try {
+    getDb();
+  } catch (e) {
+    console.error('DB init error (non-fatal):', e.message);
+  }
 
   // 1. Запускаем Express API СРАЗУ — Railway должен видеть порт
   const apiApp = require('./api');
@@ -759,7 +763,13 @@ async function main() {
   launchBotInBackground();
 }
 
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception (keeping alive):', err.message);
+});
+process.on('unhandledRejection', (err) => {
+  console.error('Unhandled rejection (keeping alive):', err.message || err);
+});
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
 
-main();
+main().catch(err => console.error('Main error:', err.message));
