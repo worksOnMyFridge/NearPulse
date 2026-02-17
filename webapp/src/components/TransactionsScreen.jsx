@@ -152,13 +152,13 @@ export default function TransactionsScreen() {
                 </div>
 
                 {/* Action Buttons - появляются при hover */}
-                <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all duration-200 animate-fade-in">
+                <div className="flex gap-2 transition-all duration-200">
                   {/* Explorer Button */}
                   <a
                     href={`https://nearblocks.io/txns/${tx.hash}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 px-3 py-1.5 glass-subtle rounded-lg text-xs text-secondary hover:text-blue-400 hover:border-blue-400/30 transition-all border border-transparent"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-gray-800 dark:text-white/80 bg-gray-200 dark:bg-white/10 hover:bg-gray-300 dark:hover:bg-white/20 transition-all border border-gray-300 dark:border-white/20"
                     title="Открыть в Explorer"
                   >
                     <Globe className="w-3.5 h-3.5" />
@@ -168,7 +168,7 @@ export default function TransactionsScreen() {
                   {/* Copy Button */}
                   <button
                     onClick={() => copyToClipboard(tx.hash)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 glass-subtle rounded-lg text-xs text-secondary hover:text-green-400 hover:border-green-400/30 transition-all border border-transparent"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-gray-800 dark:text-white/80 bg-gray-200 dark:bg-white/10 hover:bg-gray-300 dark:hover:bg-white/20 transition-all border border-gray-300 dark:border-white/20"
                     title="Копировать хеш"
                   >
                     <Copy className="w-3.5 h-3.5" />
@@ -178,10 +178,10 @@ export default function TransactionsScreen() {
                   {/* Details Button */}
                   <button
                     onClick={() => toggleDetails(tx.hash)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 glass-subtle rounded-lg text-xs transition-all border ${
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-all border ${
                       expandedTx === tx.hash
-                        ? 'text-purple-400 border-purple-400/30'
-                        : 'text-secondary hover:text-purple-400 hover:border-purple-400/30 border-transparent'
+                        ? 'text-purple-600 dark:text-purple-400 border-purple-400/30 bg-purple-100 dark:bg-purple-500/20'
+                        : 'text-gray-800 dark:text-white/80 bg-gray-200 dark:bg-white/10 hover:bg-gray-300 dark:hover:bg-white/20 border-gray-300 dark:border-white/20'
                     }`}
                     title="Показать детали"
                   >
