@@ -610,8 +610,27 @@ def analyze_transaction_group(tx_group, user_address):
             token_name = parts[0].upper()
         is_outgoing = first_tx.get("predecessor_account_id") == user_address
         description = f"Отправлено {token_name}" if is_outgoing else f"Получено {token_name}"
+    elif any("nft" in c or "mintbase" in c or "paras" in c or "nft_" in str(first_tx.get("actions", [])) for c in contract_list):
+        icon = "nft"
+        category = "nft"
+        is_outgoing = first_tx.get("predecessor_account_id") == user_address
+        description = f"NFT \u2192 отправлено" if is_outgoing else f"NFT \u2190 получено"
+    elif any("aurora" in c or "bridge" in c or "rainbow" in c or "factory.bridge.near" in c for c in contract_list):
+        icon = "bridge"
+        category = "defi"
+        description = f"Bridge ({contract_list[0][:20]})"
     elif total_near_deposit < 0.001 and tx_count <= 2:
-        return None
+        icon = "contract"
+        category = "other"
+        method_name = ""
+        for tx in relevant:
+            for a in tx.get("actions", []):
+                if isinstance(a, dict) and a.get("method"):
+                    method_name = a["method"]
+                    break
+            if method_name:
+                break
+        description = method_name if method_name else f"Вызов {contract_list[0][:25]}" if contract_list else "Транзакция"
     else:
         icon = "contract"
         category = "other"
@@ -624,6 +643,8 @@ def analyze_transaction_group(tx_group, user_address):
         "transfer_in": "\U0001f4e5",
         "token": "\U0001fa99",
         "contract": "\U0001f4dd",
+        "nft": "\U0001f5bc",
+        "bridge": "\U0001f309",
     }
 
     details = []
@@ -835,6 +856,9 @@ def api_transactions(account_id):
         return jsonify(c)
 
     try:
+        limit = request.args.get("limit", 20, type=int)
+        limit = min(max(limit, 1), 50)
+
         txns = get_transaction_history(account_id)
         near_price = get_near_price()
 
@@ -851,7 +875,7 @@ def api_transactions(account_id):
                 analyzed.append(result)
 
         analyzed.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
-        transactions = analyzed[:15]
+        transactions = analyzed[:limit]
 
         result = {
             "transactions": transactions,

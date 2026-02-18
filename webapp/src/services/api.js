@@ -45,16 +45,19 @@ export async function fetchTransactions(address, limit = 10) {
     const data = await response.json();
     const nearPrice = data.nearPrice || 0;
 
-    // API возвращает { hash, type, icon, description, amount, amountFormatted, usdValue, timestamp, tokenName }
+    // API возвращает { id, type, icon, action, timestamp, gas, protocol, txCount, ... }
     if (data.transactions) {
       data.transactions = data.transactions.map(tx => ({
         ...tx,
         hash: tx.hash || tx.id || '',
         description: tx.description || tx.action || 'Транзакция',
-        amount: tx.amount ?? 0,
-        amountFormatted: tx.amountFormatted ?? (tx.amount || 0).toFixed(4),
-        usdValue: tx.usdValue ?? (nearPrice && tx.amount > 0 ? tx.amount * nearPrice : null),
+        amount: tx.amount ?? tx.allNearSpent ?? tx.allNearReceived ?? 0,
+        amountFormatted: tx.amountFormatted ?? (tx.amount || tx.allNearSpent || tx.allNearReceived || 0).toFixed(4),
+        usdValue: tx.usdValue ?? (nearPrice && (tx.amount || tx.allNearSpent) > 0 ? (tx.amount || tx.allNearSpent) * nearPrice : null),
         tokenName: tx.tokenName || null,
+        gas: tx.gas ?? null,
+        protocol: tx.protocol || null,
+        txCount: tx.txCount || 1,
       }));
     }
 
