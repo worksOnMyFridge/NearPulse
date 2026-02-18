@@ -1,6 +1,7 @@
 """
 NearPulse Flask API — REST endpoints for Telegram Mini App.
-Replicates nearService.js logic in Python.
+Migrated to Intear Token Indexer for prices (prices.intear.tech).
+Transactions/NFT: Nearblocks (Intear Events API — WebSocket only, no REST).
 """
 
 import os
@@ -176,9 +177,27 @@ def get_balance(address):
 
 
 def get_near_price():
+    """NEAR price: Intear Token Indexer (primary), CoinGecko (fallback)."""
     c = cached("near_price")
     if c is not None:
         return c
+    price = 0
+    try:
+        r = http_requests.get(
+            f"{INTEAR_API}/get-token-price",
+            params={"token_id": "wrap.near"},
+            timeout=API_TIMEOUT,
+        )
+        if r.status_code == 200:
+            data = r.json()
+            p = data.get("price") if isinstance(data, dict) else data
+            price = float(p) if p is not None else 0
+        if not price:
+            raise ValueError("Intear returned no price")
+        set_cache("near_price", price)
+        return price
+    except Exception as e:
+        print(f"[get_near_price] Intear: {e}")
     try:
         r = http_requests.get(
             f"{COINGECKO_API}/simple/price",
@@ -186,10 +205,11 @@ def get_near_price():
             timeout=API_TIMEOUT,
         )
         price = r.json().get("near", {}).get("usd", 0)
-        set_cache("near_price", price)
+        if price:
+            set_cache("near_price", price)
         return price
     except Exception as e:
-        print(f"[get_near_price] Error: {e}")
+        print(f"[get_near_price] CoinGecko fallback: {e}")
         return 0
 
 
@@ -374,6 +394,7 @@ def get_ref_finance_prices(contracts):
 
 
 def get_intear_prices(contracts):
+    """Intear Token Indexer — primary source for token prices."""
     try:
         r = http_requests.get(f"{INTEAR_API}/list-token-price", timeout=API_TIMEOUT)
         intear_data = r.json() or {}
@@ -381,12 +402,13 @@ def get_intear_prices(contracts):
         for c in contracts:
             for variant in [c, c.lower()]:
                 p = intear_data.get(variant)
-                if p and isinstance(p, dict):
-                    pnum = float(p.get("price", 0))
-                    if pnum > 0:
-                        prices[c] = pnum
-                        prices[c.lower()] = pnum
-                        break
+                if p is None:
+                    continue
+                pnum = float(p.get("price", 0)) if isinstance(p, dict) else float(p)
+                if pnum > 0:
+                    prices[c] = pnum
+                    prices[c.lower()] = pnum
+                    break
         return prices
     except Exception as e:
         print(f"[intear] Error: {e}")
@@ -400,17 +422,17 @@ def get_tokens_with_prices(address, min_usd=1):
         return {"major": [], "filtered": [], "hidden": []}
 
     contracts = [t["contract"] for t in tokens]
-    cg_prices = get_coingecko_prices(contracts)
-    ref_prices = get_ref_finance_prices(contracts)
     intear_prices = get_intear_prices(contracts)
+    ref_prices = get_ref_finance_prices(contracts)
+    cg_prices = get_coingecko_prices(contracts)
 
     results = []
     for t in tokens:
         c = t["contract"]
         price = (
-            cg_prices.get(c) or cg_prices.get(c.lower())
-            or intear_prices.get(c) or intear_prices.get(c.lower())
+            intear_prices.get(c) or intear_prices.get(c.lower())
             or ref_prices.get(c) or ref_prices.get(c.lower())
+            or cg_prices.get(c) or cg_prices.get(c.lower())
             or t["nearblocks_price"]
             or 0
         )
@@ -530,6 +552,7 @@ def time_ago(timestamp_ns):
 
 
 def analyze_transaction_group(tx_group, user_address):
+    """Определяет тип транзакции: swap, nft, bridge, transfer, token, contract."""
     relevant = [
         tx for tx in tx_group
         if tx.get("receiver_account_id") != "system"
@@ -538,103 +561,90 @@ def analyze_transaction_group(tx_group, user_address):
     if not relevant:
         return None
 
-    contracts = set()
+    contracts = {tx.get("receiver_account_id", "") for tx in relevant}
+    contract_list = list(contracts)
+    first_tx = relevant[0]
+    timestamp = first_tx.get("block_timestamp", 0)
+    tx_count = len(relevant)
+
     total_near_deposit = 0
     total_near_received = 0
-
     for tx in relevant:
-        contracts.add(tx.get("receiver_account_id", ""))
         deposit = float(tx.get("actions_agg", {}).get("deposit", 0)) / 1e24
         if tx.get("predecessor_account_id") == user_address:
             total_near_deposit += deposit
         elif tx.get("receiver_account_id") == user_address:
             total_near_received += deposit
 
-    contract_list = list(contracts)
-    first_tx = relevant[0]
-    timestamp = first_tx.get("block_timestamp", 0)
-    tx_count = len(relevant)
+    gas_fee = sum(
+        float(tx.get("outcomes_agg", {}).get("transaction_fee", 0) or 0) / 1e24
+        for tx in relevant
+    )
 
-    gas_fee = 0
-    for tx in relevant:
-        fee = tx.get("outcomes_agg", {}).get("transaction_fee", 0)
-        gas_fee += float(fee) / 1e24 if fee else 0
+    def has_any(*patterns):
+        return any(any(p in c for p in patterns) for c in contract_list)
 
-    has_ref = any("ref-finance" in c for c in contract_list)
-    has_rhea = any("rhea" in c for c in contract_list)
-    has_hot = any("hot.tg" in c or c == "game.hot.tg" for c in contract_list)
-    has_moon = any("harvest-moon" in c for c in contract_list)
-    has_meteor = any("meteor" in c for c in contract_list)
-
-    icon = ""
-    description = ""
+    tx_type = "contract"
+    icon = "contract"
+    description = "Вызов контракта"
     show_amount = False
     amount = 0
     category = "other"
 
-    if (has_ref or has_rhea) and tx_count > 1:
-        icon = "swap"
-        dex = "Ref Finance" if has_ref else "RHEA"
+    if has_any("ref-finance", "rhea") and tx_count > 1:
+        tx_type, icon = "swap", "swap"
+        dex = "Ref Finance" if has_any("ref-finance") else "RHEA"
         description = f"Swap на {dex}"
         category = "defi"
         if total_near_deposit > 0:
-            amount = total_near_deposit
-            show_amount = True
-    elif has_hot or has_moon or has_meteor:
-        icon = "claim"
+            amount, show_amount = total_near_deposit, True
+    elif has_any("hot.tg", "game.hot.tg"):
+        tx_type, icon = "claim", "claim"
+        description = "Claim HOT"
         category = "gaming"
-        if has_hot:
-            description = "Claim HOT"
-        elif has_moon:
-            description = "Claim MOON"
-        else:
-            description = "Claim Meteor"
-    elif total_near_deposit > 0.01 and tx_count == 1:
-        is_outgoing = first_tx.get("predecessor_account_id") == user_address
-        icon = "transfer_out" if is_outgoing else "transfer_in"
-        category = "transfers"
-        other = first_tx.get("receiver_account_id") if is_outgoing else first_tx.get("predecessor_account_id")
-        description = f"Перевод \u2192 {other}" if is_outgoing else f"Получено \u2190 {other}"
-        amount = total_near_deposit
-        show_amount = True
-    elif any(".tkn." in c or "token." in c or "meme-cooking" in c for c in contract_list):
-        icon = "token"
+    elif has_any("harvest-moon"):
+        tx_type, icon = "claim", "claim"
+        description = "Claim MOON"
+        category = "gaming"
+    elif has_any("meteor"):
+        tx_type, icon = "claim", "claim"
+        description = "Claim Meteor"
+        category = "gaming"
+    elif has_any("aurora", "bridge", "rainbow", "factory.bridge.near"):
+        tx_type, icon = "bridge", "bridge"
+        description = f"Bridge ({contract_list[0][:20]}...)" if contract_list else "Bridge"
         category = "defi"
-        token_contract = next((c for c in contract_list if ".tkn." in c or "token." in c or "meme-cooking" in c), "")
-        parts = token_contract.split(".")
-        if parts[0] == "token" and len(parts) >= 3:
-            token_name = parts[1].upper()
-        elif "meme-cooking" in token_contract:
-            token_name = parts[0].split("-")[0].upper()
-        else:
-            token_name = parts[0].upper()
+    elif has_any("nft", "mintbase", "paras") or "nft_" in str(first_tx.get("actions", [])):
+        tx_type, icon = "nft", "nft"
         is_outgoing = first_tx.get("predecessor_account_id") == user_address
-        description = f"Отправлено {token_name}" if is_outgoing else f"Получено {token_name}"
-    elif any("nft" in c or "mintbase" in c or "paras" in c or "nft_" in str(first_tx.get("actions", [])) for c in contract_list):
-        icon = "nft"
+        description = f"NFT → отправлено" if is_outgoing else "NFT ← получено"
         category = "nft"
-        is_outgoing = first_tx.get("predecessor_account_id") == user_address
-        description = f"NFT \u2192 отправлено" if is_outgoing else f"NFT \u2190 получено"
-    elif any("aurora" in c or "bridge" in c or "rainbow" in c or "factory.bridge.near" in c for c in contract_list):
-        icon = "bridge"
+    elif total_near_deposit > 0.01 and tx_count == 1:
+        tx_type = "transfer_out" if first_tx.get("predecessor_account_id") == user_address else "transfer_in"
+        icon = "transfer_out" if tx_type == "transfer_out" else "transfer_in"
+        category = "transfers"
+        other = first_tx.get("receiver_account_id") if tx_type == "transfer_out" else first_tx.get("predecessor_account_id")
+        short = (other[:8] + "..." + other[-6:]) if len(other) > 20 else other
+        description = f"Перевод → {short}" if tx_type == "transfer_out" else f"Получено ← {short}"
+        amount, show_amount = total_near_deposit, True
+    elif has_any(".tkn.", "token.", "meme-cooking"):
+        tx_type, icon = "token", "token"
         category = "defi"
-        description = f"Bridge ({contract_list[0][:20]})"
-    elif total_near_deposit < 0.001 and tx_count <= 2:
-        icon = "contract"
-        category = "other"
+        tc = next((c for c in contract_list if ".tkn." in c or "token." in c or "meme-cooking" in c), "")
+        parts = tc.split(".")
+        token_name = (parts[1] if parts[0] == "token" and len(parts) >= 3 else parts[0].split("-")[0]).upper()
+        is_out = first_tx.get("predecessor_account_id") == user_address
+        description = f"Отправлено {token_name}" if is_out else f"Получено {token_name}"
+    else:
         method_name = ""
         for tx in relevant:
-            for a in tx.get("actions", []):
+            for a in tx.get("actions", []) or []:
                 if isinstance(a, dict) and a.get("method"):
                     method_name = a["method"]
                     break
             if method_name:
                 break
-        description = method_name if method_name else f"Вызов {contract_list[0][:25]}" if contract_list else "Транзакция"
-    else:
-        icon = "contract"
-        category = "other"
-        description = f"Вызов контракта ({tx_count} транзакций)"
+        description = method_name or (f"Вызов {contract_list[0][:25]}..." if contract_list else "Транзакция")
 
     icon_map = {
         "swap": "\U0001f504",
@@ -671,12 +681,12 @@ def analyze_transaction_group(tx_group, user_address):
 
     result_str = ""
     if show_amount and amount > 0:
-        sign = "-" if icon == "transfer_out" else "+"
+        sign = "-" if tx_type == "transfer_out" else "+"
         result_str = f"{sign}{amount:.2f} NEAR"
 
     return {
         "id": first_tx.get("transaction_hash", ""),
-        "type": icon,
+        "type": tx_type,
         "icon": icon_map.get(icon, "\U0001f4dd"),
         "protocol": contract_list[0] if contract_list else "",
         "action": description,
@@ -851,9 +861,10 @@ def api_balance(account_id):
 @app.route("/api/transactions/<account_id>")
 def api_transactions(account_id):
     cache_key = f"txns:{account_id}"
-    c = cached(cache_key)
-    if c:
-        return jsonify(c)
+    if not request.args.get("_") and not request.args.get("nocache"):
+        c = cached(cache_key)
+        if c:
+            return jsonify(c)
 
     try:
         limit = request.args.get("limit", 20, type=int)
