@@ -1,7 +1,0 @@
-src/
-api.py
-requirements.txt
-node_modules/
-.env
-*.log
-railway.toml

@@ -1,9 +1,7 @@
 """
 NearPulse Flask API — REST endpoints for Telegram Mini App.
-Migrated to Intear Token Indexer for prices (prices.intear.tech).
-Transactions/NFT: Nearblocks (Intear Events API — WebSocket only, no REST).
+v2.1.0 — Fixed bugs + AI Chat Agent endpoint.
 """
-
 import os
 import json
 import time
@@ -19,27 +17,33 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
+
+# ─── CORS ─────────────────────────────────────────────────────────────────
+# BUGFIX: добавлены все возможные Netlify-домены + wildcard для локалки
 CORS(app, origins=[
     "https://nearpulseapp.netlify.app",
     "https://near-pulse.vercel.app",
-    "http://localhost:5173"
-])
+    "https://nearpulse.netlify.app",
+    "https://nearanalyticsapp.netlify.app",
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:5173",
+], supports_credentials=False)
 
-# ─── Constants ──────────────────────────────────────────────────────────────
-
-NEAR_RPC_URL = "https://rpc.mainnet.near.org"
-NEARBLOCKS_API = "https://api.nearblocks.io/v1"
+# ─── Constants ─────────────────────────────────────────────────────────────
+NEAR_RPC_URL      = "https://rpc.mainnet.near.org"
+NEARBLOCKS_API    = "https://api.nearblocks.io/v1"
 NEARBLOCKS_API_KEY = os.environ.get("NEARBLOCKS_API_KEY", "")
-FASTNEAR_API = "https://api.fastnear.com/v1"
-INTEAR_API = "https://prices.intear.tech"
-COINGECKO_API = "https://api.coingecko.com/api/v3"
-REF_FINANCE_API = "https://indexer.ref.finance"
-HOT_CONTRACT = "game.hot.tg"
-YOCTO_NEAR = 1e24
-API_TIMEOUT = 10
+FASTNEAR_API      = "https://api.fastnear.com/v1"
+INTEAR_API        = "https://prices.intear.tech"
+COINGECKO_API     = "https://api.coingecko.com/api/v3"
+REF_FINANCE_API   = "https://indexer.ref.finance"
+HOT_CONTRACT      = "game.hot.tg"
+YOCTO_NEAR        = 1e24
+API_TIMEOUT       = 10
+FIRESPACE_HOURS   = {0: 2, 1: 3, 2: 4, 3: 6, 4: 12, 5: 12, 6: 24}
 
-FIRESPACE_HOURS = {0: 2, 1: 3, 2: 4, 3: 6, 4: 12, 5: 12, 6: 24}
-STORAGE_LEVEL_HOURS = {0: 2, 1: 3, 2: 4, 3: 6, 4: 12, 5: 24}
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
 TOKEN_DECIMALS_MAP = {
     "dac17f958d2ee523a2206206994597c13d831ec7.factory.bridge.near": 6,
@@ -95,11 +99,9 @@ MAJOR_TOKENS = [
     "c02aaa39b223fe8d0a0e5c4f27ead9083c756cc2.factory.bridge.near",
 ]
 
-# ─── Cache (Upstash Redis with in-memory fallback) ──────────────────────────
-
+# ─── Cache ─────────────────────────────────────────────────────────────────
 UPSTASH_REDIS_URL = os.environ.get("UPSTASH_REDIS_URL", "")
 CACHE_TTL = 300  # 5 minutes
-
 _redis_client = None
 _mem_cache = {}
 
@@ -146,9 +148,7 @@ def set_cache(key, data, ttl=CACHE_TTL):
             pass
 
 
-# ─── NEAR Data Functions ────────────────────────────────────────────────────
-
-
+# ─── NEAR Data Functions ───────────────────────────────────────────────────
 def get_balance(address):
     try:
         r = http_requests.post(
@@ -177,7 +177,6 @@ def get_balance(address):
 
 
 def get_near_price():
-    """NEAR price: Intear Token Indexer (primary), CoinGecko (fallback)."""
     c = cached("near_price")
     if c is not None:
         return c
@@ -210,7 +209,7 @@ def get_near_price():
         return price
     except Exception as e:
         print(f"[get_near_price] CoinGecko fallback: {e}")
-        return 0
+    return 0
 
 
 def get_staking_balance(address):
@@ -258,10 +257,8 @@ def get_hot_claim_status(address):
         result = data.get("result", {}).get("result")
         if not result or not isinstance(result, list):
             return None
-
         json_str = bytes(result).decode("utf-8")
         user_data = json.loads(json_str)
-
         firespace = user_data.get("firespace")
         if firespace is not None:
             level = int(firespace)
@@ -278,7 +275,6 @@ def get_hot_claim_status(address):
             storage_hours = int(raw) if raw else 24
 
         max_storage_ms = storage_hours * 3600 * 1000
-
         last_claim_raw = (
             user_data.get("last_claimed_at")
             or user_data.get("last_claim")
@@ -287,7 +283,6 @@ def get_hot_claim_status(address):
             or 0
         )
         last_claim_ms = last_claim_raw / 1e6 if last_claim_raw > 1e15 else last_claim_raw
-
         next_claim_at = last_claim_ms + max_storage_ms
         now = time.time() * 1000
 
@@ -322,12 +317,10 @@ def get_all_tokens(address):
                 decimals = 18 if raw_amount > 1e15 else 0
             decimals = int(decimals)
             normalized = raw_amount / (10 ** decimals) if decimals > 0 else raw_amount
-
             symbol = t.get("symbol") or (t.get("ft_meta") or {}).get("symbol")
             if not symbol:
                 parts = contract.split(".")
                 symbol = parts[0][:10].upper() if len(parts[0]) > 15 else parts[0].upper()
-
             nb_price = t.get("price") or (t.get("ft_meta") or {}).get("price") or 0
             result.append({
                 "name": t.get("name") or (t.get("ft_meta") or {}).get("name") or symbol,
@@ -394,7 +387,6 @@ def get_ref_finance_prices(contracts):
 
 
 def get_intear_prices(contracts):
-    """Intear Token Indexer — primary source for token prices."""
     try:
         r = http_requests.get(f"{INTEAR_API}/list-token-price", timeout=API_TIMEOUT)
         intear_data = r.json() or {}
@@ -420,19 +412,20 @@ def get_tokens_with_prices(address, min_usd=1):
     tokens = [t for t in tokens if t["contract"].lower() != "game.hot.tg"]
     if not tokens:
         return {"major": [], "filtered": [], "hidden": []}
-
     contracts = [t["contract"] for t in tokens]
     intear_prices = get_intear_prices(contracts)
     ref_prices = get_ref_finance_prices(contracts)
     cg_prices = get_coingecko_prices(contracts)
-
     results = []
     for t in tokens:
         c = t["contract"]
         price = (
-            intear_prices.get(c) or intear_prices.get(c.lower())
-            or ref_prices.get(c) or ref_prices.get(c.lower())
-            or cg_prices.get(c) or cg_prices.get(c.lower())
+            intear_prices.get(c)
+            or intear_prices.get(c.lower())
+            or ref_prices.get(c)
+            or ref_prices.get(c.lower())
+            or cg_prices.get(c)
+            or cg_prices.get(c.lower())
             or t["nearblocks_price"]
             or 0
         )
@@ -450,7 +443,6 @@ def get_tokens_with_prices(address, min_usd=1):
         key=lambda x: (-x["usdValue"] if x["price"] > 0 else -x["amount"]),
     )
     hidden = [t for t in others if t not in filtered]
-
     return {"major": major, "filtered": filtered, "hidden": hidden}
 
 
@@ -468,11 +460,8 @@ def get_token_balance(address, token_id="game.hot.tg"):
         return 0
 
 
-# ─── NFT via FastNEAR ────────────────────────────────────────────────────────
-
-
+# ─── NFT via FastNEAR ──────────────────────────────────────────────────────
 def get_user_nfts(account_id):
-    """Fetch NFT contracts + token counts via FastNEAR API."""
     try:
         url = f"{FASTNEAR_API}/account/{account_id}/nft"
         r = http_requests.get(url, timeout=API_TIMEOUT)
@@ -480,7 +469,6 @@ def get_user_nfts(account_id):
             print(f"[FastNEAR NFT] status {r.status_code}")
             return []
         data = r.json()
-        # FastNEAR returns { "contract_id": [...token_ids] } or list of contracts
         tokens = data.get("tokens", data) if isinstance(data, dict) else data
         nfts = []
         if isinstance(tokens, dict):
@@ -496,8 +484,8 @@ def get_user_nfts(account_id):
                 if isinstance(item, dict):
                     nfts.append({
                         "contract": item.get("contract_id", item.get("contract", "")),
-                        "count": item.get("count", item.get("last_update_block_height", 1)),
-                        "tokenIds": item.get("token_ids", item.get("tokens", []))[:10],
+                        "count": item.get("count", 1),
+                        "tokenIds": item.get("token_ids", [])[:10],
                     })
                 elif isinstance(item, str):
                     nfts.append({"contract": item, "count": 0, "tokenIds": []})
@@ -507,9 +495,7 @@ def get_user_nfts(account_id):
         return []
 
 
-# ─── Transaction Analysis ───────────────────────────────────────────────────
-
-
+# ─── Transaction Analysis ──────────────────────────────────────────────────
 def get_transaction_history(address):
     try:
         url = f"{NEARBLOCKS_API}/account/{address}/txns"
@@ -552,7 +538,6 @@ def time_ago(timestamp_ns):
 
 
 def analyze_transaction_group(tx_group, user_address):
-    """Определяет тип транзакции: swap, nft, bridge, transfer, token, contract."""
     relevant = [
         tx for tx in tx_group
         if tx.get("receiver_account_id") != "system"
@@ -617,7 +602,7 @@ def analyze_transaction_group(tx_group, user_address):
     elif has_any("nft", "mintbase", "paras") or "nft_" in str(first_tx.get("actions", [])):
         tx_type, icon = "nft", "nft"
         is_outgoing = first_tx.get("predecessor_account_id") == user_address
-        description = f"NFT → отправлено" if is_outgoing else "NFT ← получено"
+        description = "NFT → отправлено" if is_outgoing else "NFT ← получено"
         category = "nft"
     elif total_near_deposit > 0.01 and tx_count == 1:
         tx_type = "transfer_out" if first_tx.get("predecessor_account_id") == user_address else "transfer_in"
@@ -647,14 +632,14 @@ def analyze_transaction_group(tx_group, user_address):
         description = method_name or (f"Вызов {contract_list[0][:25]}..." if contract_list else "Транзакция")
 
     icon_map = {
-        "swap": "\U0001f504",
-        "claim": "\U0001f381",
-        "transfer_out": "\U0001f4e4",
-        "transfer_in": "\U0001f4e5",
-        "token": "\U0001fa99",
-        "contract": "\U0001f4dd",
-        "nft": "\U0001f5bc",
-        "bridge": "\U0001f309",
+        "swap": "🔄",
+        "claim": "🎁",
+        "transfer_out": "📤",
+        "transfer_in": "📥",
+        "token": "🪙",
+        "contract": "📝",
+        "nft": "🖼️",
+        "bridge": "🌉",
     }
 
     details = []
@@ -687,7 +672,7 @@ def analyze_transaction_group(tx_group, user_address):
     return {
         "id": first_tx.get("transaction_hash", ""),
         "type": tx_type,
-        "icon": icon_map.get(icon, "\U0001f4dd"),
+        "icon": icon_map.get(icon, "📝"),
         "protocol": contract_list[0] if contract_list else "",
         "action": description,
         "time": time_ago(timestamp),
@@ -739,9 +724,9 @@ def compute_analytics(grouped_txs, near_price):
 
     contract_counts = defaultdict(lambda: {"txs": 0, "gas": 0, "category": "other"})
     protocol_names = {
-        "game.hot.tg": ("Hot Protocol", "\U0001f525", "Gaming"),
-        "v2.ref-finance.near": ("Ref Finance", "\U0001f4b1", "DeFi"),
-        "harvest-moon.near": ("Moon Protocol", "\U0001f319", "Gaming"),
+        "game.hot.tg": ("Hot Protocol", "🔥", "Gaming"),
+        "v2.ref-finance.near": ("Ref Finance", "💱", "DeFi"),
+        "harvest-moon.near": ("Moon Protocol", "🌙", "Gaming"),
     }
     for tx in grouped_txs:
         if tx.get("details"):
@@ -753,6 +738,7 @@ def compute_analytics(grouped_txs, near_price):
                     contract_counts[c]["category"] = tx.get("category", "other")
 
     top_contracts = []
+    total_gas_all = sum(data["gas"] for data in contract_counts.values()) or 1
     for c, data in sorted(contract_counts.items(), key=lambda x: -x[1]["txs"])[:6]:
         name_info = protocol_names.get(c)
         if name_info:
@@ -760,19 +746,22 @@ def compute_analytics(grouped_txs, near_price):
         else:
             parts = c.split(".")
             name = parts[0] if len(parts[0]) <= 20 else parts[0][:15] + "..."
-            icon_str = "\U0001f4dd"
+            icon_str = "📝"
             cat = data["category"].capitalize()
+        # BUGFIX: добавлен percent для topContracts
         top_contracts.append({
             "name": name,
             "icon": icon_str,
             "txs": data["txs"],
             "gas": round(data["gas"], 6),
+            "gasUSD": round(data["gas"] * near_price, 4) if near_price else 0,
             "category": cat,
+            "percent": round(data["gas"] / total_gas_all * 100) if total_gas_all > 0 else 0,
         })
 
     most_active = top_contracts[0]["name"] if top_contracts else "N/A"
 
-    day_names = ["\u041f\u043d", "\u0412\u0442", "\u0421\u0440", "\u0427\u0442", "\u041f\u0442", "\u0421\u0431", "\u0412\u0441"]
+    day_names = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
     day_counts = defaultdict(int)
     for tx in grouped_txs:
         ts = tx.get("timestamp", 0)
@@ -789,22 +778,23 @@ def compute_analytics(grouped_txs, near_price):
                 day_counts[dt.weekday()] += 1
             except Exception:
                 pass
+
     activity_by_day = [{"day": day_names[i], "txs": day_counts.get(i, 0)} for i in range(7)]
 
     insights = []
     avg_gas = total_gas / total_txs if total_txs > 0 else 0
     if total_txs > 30:
-        insights.append({"type": "info", "text": f"\u0412\u044b\u0441\u043e\u043a\u0430\u044f \u0430\u043a\u0442\u0438\u0432\u043d\u043e\u0441\u0442\u044c: {total_txs} \u0442\u0440\u0430\u043d\u0437\u0430\u043a\u0446\u0438\u0439", "icon": "\U0001f4c8"})
+        insights.append({"type": "info", "text": f"Высокая активность: {total_txs} транзакций", "icon": "📈"})
     if avg_gas > 0.005:
-        insights.append({"type": "warning", "text": "Gas \u0440\u0430\u0441\u0445\u043e\u0434\u044b \u0432\u044b\u0448\u0435 \u0441\u0440\u0435\u0434\u043d\u0435\u0433\u043e", "icon": "\u26a0\ufe0f"})
+        insights.append({"type": "warning", "text": "Gas расходы выше среднего", "icon": "⚠️"})
     gaming_count = cats["gaming"]["count"]
     if gaming_count > total_txs * 0.5 and gaming_count > 0:
-        insights.append({"type": "info", "text": f"Gaming \u2014 \u043e\u0441\u043d\u043e\u0432\u043d\u0430\u044f \u0430\u043a\u0442\u0438\u0432\u043d\u043e\u0441\u0442\u044c ({gaming_count} txs)", "icon": "\U0001f3ae"})
+        insights.append({"type": "info", "text": f"Gaming — основная активность ({gaming_count} txs)", "icon": "🎮"})
     defi_count = cats["defi"]["count"]
     if defi_count > 5:
-        insights.append({"type": "success", "text": f"\u0410\u043a\u0442\u0438\u0432\u043d\u044b\u0439 DeFi-\u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044c ({defi_count} \u043e\u043f\u0435\u0440\u0430\u0446\u0438\u0439)", "icon": "\U0001f4b0"})
+        insights.append({"type": "success", "text": f"Активный DeFi-пользователь ({defi_count} операций)", "icon": "💰"})
     if not insights:
-        insights.append({"type": "info", "text": f"\u0412\u0441\u0435\u0433\u043e {total_txs} \u0442\u0440\u0430\u043d\u0437\u0430\u043a\u0446\u0438\u0439 \u0437\u0430 \u043f\u0435\u0440\u0438\u043e\u0434", "icon": "\U0001f4ca"})
+        insights.append({"type": "info", "text": f"Всего {total_txs} транзакций за период", "icon": "📊"})
 
     return {
         "totalTxs": total_txs,
@@ -819,16 +809,104 @@ def compute_analytics(grouped_txs, near_price):
     }
 
 
-# ─── API Endpoints ──────────────────────────────────────────────────────────
+# ─── AI Chat ───────────────────────────────────────────────────────────────
+def build_ai_system_prompt(wallet_context=None):
+    base = """Ты — NearPulse AI, персональный аналитик NEAR Protocol и криптовалютного рынка.
+
+Твои возможности:
+• Анализ рынка NEAR, криптовалют и DeFi экосистемы
+• Оценка портфеля пользователя и рекомендации
+• Объяснение DeFi протоколов (Ref Finance, Burrow, Meta Pool, HOT Protocol)
+• Анализ транзакций и паттернов поведения
+• Рыночные прогнозы и тренды (с оговорками — не финансовый совет)
+• Советы по стейкингу, farming, управлению газом
+
+Стиль общения:
+• Отвечай конкретно и лаконично
+• Используй эмодзи для наглядности
+• Финансовые советы помечай: "⚠️ Не является финансовым советом"
+• Отвечай на русском языке, если вопрос задан по-русски
+
+Контекст платформы: NearPulse — аналитический инструмент для NEAR Protocol кошельков."""
+
+    if wallet_context:
+        near = wallet_context.get("near", 0)
+        staking = wallet_context.get("staking", 0)
+        hot = wallet_context.get("hot", 0)
+        near_price = wallet_context.get("nearPrice", 0)
+        total_usd = wallet_context.get("totalUSD", 0)
+        address = wallet_context.get("address", "")
+
+        tokens_info = ""
+        tokens = wallet_context.get("tokens", {})
+        all_tokens = tokens.get("major", []) + tokens.get("filtered", [])
+        if all_tokens:
+            top_tokens = all_tokens[:5]
+            tokens_info = "\nОсновные токены: " + ", ".join(
+                f"{t['symbol']} ({t['amount']:.2f}, ${t.get('usdValue', 0):.2f})" 
+                for t in top_tokens
+            )
+
+        base += f"""
+
+━━━ ДАННЫЕ КОШЕЛЬКА ПОЛЬЗОВАТЕЛЯ ━━━
+Адрес: {address}
+NEAR баланс: {near:.4f} NEAR (${near * near_price:.2f})
+В стейкинге: {staking:.4f} NEAR
+HOT токены: {hot:.2f}
+Цена NEAR: ${near_price:.4f}
+Общая стоимость портфеля: ${total_usd:.2f}{tokens_info}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Используй эти данные для персонализированных ответов."""
+
+    return base
 
 
+def call_anthropic_api(messages, system_prompt, max_tokens=800):
+    """Вызов Anthropic API для AI чата."""
+    if not ANTHROPIC_API_KEY:
+        return None, "ANTHROPIC_API_KEY не настроен на сервере"
+    
+    try:
+        headers = {
+            "x-api-key": ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        }
+        payload = {
+            "model": "claude-sonnet-4-20250514",
+            "max_tokens": max_tokens,
+            "system": system_prompt,
+            "messages": messages,
+        }
+        r = http_requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers=headers,
+            json=payload,
+            timeout=30,
+        )
+        if r.status_code != 200:
+            return None, f"Anthropic API error: {r.status_code}"
+        
+        data = r.json()
+        content = data.get("content", [])
+        text = ""
+        for block in content:
+            if block.get("type") == "text":
+                text += block.get("text", "")
+        return text.strip(), None
+    except Exception as e:
+        return None, str(e)
+
+
+# ─── API Endpoints ─────────────────────────────────────────────────────────
 @app.route("/api/balance/<account_id>")
 def api_balance(account_id):
     cache_key = f"balance:{account_id}"
     c = cached(cache_key)
     if c:
         return jsonify(c)
-
     try:
         balance = get_balance(account_id)
         staking = get_staking_balance(account_id)
@@ -836,12 +914,10 @@ def api_balance(account_id):
         hot_claim = get_hot_claim_status(account_id)
         near_price = get_near_price()
         tokens = get_tokens_with_prices(account_id)
-
         for category in ["major", "filtered", "hidden"]:
             for t in tokens.get(category, []):
                 if t.get("icon") and len(str(t["icon"])) > 200:
                     t["icon"] = None
-
         result = {
             "address": account_id,
             "near": round(balance["near"], 4),
@@ -865,29 +941,23 @@ def api_transactions(account_id):
         c = cached(cache_key)
         if c:
             return jsonify(c)
-
     try:
         limit = request.args.get("limit", 20, type=int)
         limit = min(max(limit, 1), 50)
-
         txns = get_transaction_history(account_id)
         near_price = get_near_price()
-
         grouped = defaultdict(list)
         for tx in txns:
             h = tx.get("transaction_hash", "")
             if h:
                 grouped[h].append(tx)
-
         analyzed = []
         for tx_hash, tx_group in grouped.items():
             result = analyze_transaction_group(tx_group, account_id)
             if result:
                 analyzed.append(result)
-
         analyzed.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
         transactions = analyzed[:limit]
-
         result = {
             "transactions": transactions,
             "nearPrice": near_price,
@@ -905,23 +975,19 @@ def api_stats(account_id):
     c = cached(cache_key)
     if c:
         return jsonify(c)
-
     try:
         txns = get_transaction_history(account_id)
         near_price = get_near_price()
-
         grouped = defaultdict(list)
         for tx in txns:
             h = tx.get("transaction_hash", "")
             if h:
                 grouped[h].append(tx)
-
         analyzed = []
         for tx_hash, tx_group in grouped.items():
             result = analyze_transaction_group(tx_group, account_id)
             if result:
                 analyzed.append(result)
-
         stats = compute_analytics(analyzed, near_price)
         stats["nearPrice"] = near_price
         set_cache(cache_key, stats)
@@ -930,13 +996,21 @@ def api_stats(account_id):
         return jsonify({"error": str(e)}), 500
 
 
+# BUGFIX: /api/analytics/<id> теперь использует реальную аналитику вместо заглушки
+@app.route("/api/analytics/<account_id>")
+def get_analytics(account_id):
+    """Alias для /api/stats/ — настоящая аналитика."""
+    return api_stats(account_id)
+
+
+# BUGFIX: добавлен alias /api/nfts/ (webapp вызывал именно его)
 @app.route("/api/nft/<account_id>")
+@app.route("/api/nfts/<account_id>")
 def api_nft(account_id):
     cache_key = f"nft:{account_id}"
     c = cached(cache_key)
     if c:
         return jsonify(c)
-
     try:
         nfts = get_user_nfts(account_id)
         result = {
@@ -951,45 +1025,101 @@ def api_nft(account_id):
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/ai/chat", methods=["POST"])
+def ai_chat():
+    """
+    AI Chat endpoint — NEAR/crypto analyst powered by Claude.
+    
+    Request body:
+    {
+        "message": "Что думаешь о рынке NEAR?",
+        "history": [{"role": "user", "content": "..."}, ...],  // optional
+        "walletContext": {...}  // optional — данные кошелька для персонализации
+    }
+    """
+    try:
+        body = request.get_json(force=True)
+        if not body:
+            return jsonify({"error": "Empty request body"}), 400
+        
+        user_message = body.get("message", "").strip()
+        if not user_message:
+            return jsonify({"error": "Message is required"}), 400
+        
+        # История диалога (последние 10 сообщений для экономии токенов)
+        history = body.get("history", [])
+        if len(history) > 10:
+            history = history[-10:]
+        
+        # Данные кошелька для персонализации
+        wallet_context = body.get("walletContext")
+        
+        # Строим сообщения
+        messages = history + [{"role": "user", "content": user_message}]
+        
+        # Системный промпт
+        system_prompt = build_ai_system_prompt(wallet_context)
+        
+        # Вызываем Claude
+        response_text, error = call_anthropic_api(messages, system_prompt)
+        
+        if error:
+            # Fallback если нет API ключа
+            if "не настроен" in error:
+                return jsonify({
+                    "reply": "🤖 AI-аналитик временно недоступен. Добавьте ANTHROPIC_API_KEY в переменные окружения Render.",
+                    "error": error
+                })
+            return jsonify({"error": error}), 500
+        
+        return jsonify({
+            "reply": response_text,
+            "model": "claude-sonnet-4",
+        })
+    except Exception as e:
+        print(f"[ai_chat] Error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/", methods=["GET"])
 def index():
     return jsonify({
         "status": "ok",
         "service": "NearPulse API",
-        "version": "2.0.0"
+        "version": "2.1.0",
+        "endpoints": [
+            "/api/balance/<account_id>",
+            "/api/transactions/<account_id>",
+            "/api/stats/<account_id>",
+            "/api/analytics/<account_id>",
+            "/api/nft/<account_id>",
+            "/api/nfts/<account_id>",
+            "/api/ai/chat  [POST]",
+            "/api/health",
+        ]
     })
 
 
 @app.route("/api/health")
 def health():
-    return jsonify({"status": "ok", "timestamp": int(time.time())})
-
-
-@app.route("/api/analytics/<account_id>", methods=["GET"])
-def get_analytics(account_id):
-    """Get analytics for account"""
-    period = request.args.get("period", "week")
-
-    # Заглушка - вернем mock данные
     return jsonify({
-        "period": period,
-        "totalGas": 0.5,
-        "totalTransactions": 42,
-        "contractBreakdown": {
-            "game.hot.tg": 28,
-            "ref.finance": 14
-        },
-        "dailyActivity": [
-            {"date": "2024-02-10", "count": 5},
-            {"date": "2024-02-11", "count": 8},
-            {"date": "2024-02-12", "count": 6}
-        ]
+        "status": "ok",
+        "timestamp": int(time.time()),
+        "ai": "enabled" if ANTHROPIC_API_KEY else "disabled (no ANTHROPIC_API_KEY)",
     })
 
 
-# ─── Main ───────────────────────────────────────────────────────────────────
+# ─── NFT routes (пагинация + ленивые метаданные) ──────────────────────────
+try:
+    from nft_module import register_nft_routes
+    register_nft_routes(app, cached, set_cache)
+    print("[NFT] Paginated NFT routes registered")
+except ImportError:
+    print("[NFT] nft_module.py not found, using built-in /api/nft/ endpoint")
 
+
+# ─── Main ──────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8080))
-    print(f"NearPulse API starting on port {port}")
+    print(f"NearPulse API v2.1.0 starting on port {port}")
     app.run(host="0.0.0.0", port=port, debug=False)

@@ -1,5 +1,0 @@
-{
-  "buildCommand": "cd webapp && npm install && npm run build",
-  "outputDirectory": "webapp/dist",
-  "installCommand": "echo 'Skip root install'"
-}
