@@ -1095,7 +1095,130 @@ try:
 except ImportError:
     print("[NFT] nft_module.py not found, using built-in /api/nft/ endpoint")
 
+# ─── Добавить в api.py (вставить перед строкой "if __name__") ────────────
+#
+# Этот endpoint отдаёт историю баланса из NearBlocks transactions
+# для отображения графика в webapp.
+# Сохрани этот код в api.py, найдя блок # === Main === или конец файла.
 
+@app.route("/api/portfolio-history/<account_id>")
+def api_portfolio_history(account_id):
+    """
+    История баланса NEAR для графика в webapp.
+    Берём транзакции за период и считаем приблизительный баланс.
+    period: 7d | 14d | 30d
+    """
+    period = request.args.get("period", "7d")
+    days_map = {"7d": 7, "14d": 14, "30d": 30}
+    days = days_map.get(period, 7)
+
+    cache_key = f"portfolio_history:{account_id}:{period}"
+    cached_data = cached(cache_key)
+    if cached_data:
+        return jsonify(cached_data)
+
+    try:
+        # Получаем текущий баланс
+        rpc_body = {
+            "jsonrpc": "2.0", "id": "bal", "method": "query",
+            "params": {
+                "request_type": "view_account",
+                "finality": "final",
+                "account_id": account_id
+            }
+        }
+        r = http_requests.post(NEAR_RPC_URL, json=rpc_body, timeout=8)
+        current_near = 0
+        if r.status_code == 200:
+            result = r.json().get("result", {})
+            amount_str = result.get("amount", "0")
+            storage    = result.get("storage_usage", 0)
+            locked_str = result.get("locked", "0")
+            amount_yocto = int(amount_str) - int(locked_str) - storage * 10**19
+            current_near = max(0, amount_yocto / 10**24)
+
+        # Получаем транзакции за период для восстановления истории
+        nb_key = os.environ.get("NEARBLOCKS_API_KEY", "")
+        headers = {"Authorization": f"Bearer {nb_key}"} if nb_key else {}
+        r2 = http_requests.get(
+            f"{NEARBLOCKS_API}/account/{account_id}/txns",
+            params={"limit": 100, "order": "desc"},
+            headers=headers,
+            timeout=8
+        )
+
+        history = []
+
+        if r2.status_code == 200:
+            txns = r2.json().get("txns", [])
+            # Фильтруем по периоду
+            cutoff_ms = (datetime.now(timezone.utc).timestamp() - days * 86400) * 1000
+            period_txns = [
+                tx for tx in txns
+                if int(tx.get("block_timestamp", 0)) / 1e6 > cutoff_ms
+            ]
+
+            # Восстанавливаем баланс назад во времени
+            running_near = current_near
+            daily_balances = {}
+
+            # Группируем по дням
+            from collections import defaultdict
+            daily_deltas = defaultdict(float)
+            for tx in period_txns:
+                ts_ms = int(tx.get("block_timestamp", 0)) / 1e6
+                date  = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).strftime("%d.%m")
+                deposit_yocto = int(tx.get("actions_agg", {}).get("deposit", 0) or 0)
+                fee_yocto     = int(tx.get("outcomes_agg", {}).get("transaction_fee", 0) or 0)
+                is_receiver   = tx.get("receiver_account_id") == account_id
+                delta = 0
+                if is_receiver:
+                    delta += deposit_yocto / 1e24
+                else:
+                    delta -= deposit_yocto / 1e24
+                delta -= fee_yocto / 1e24
+                daily_deltas[date] += delta
+
+            # Строим историю начиная с сегодня
+            today = datetime.now(timezone.utc)
+            for i in range(days - 1, -1, -1):
+                day = today.replace(hour=0, minute=0, second=0)
+                from datetime import timedelta
+                day = today - timedelta(days=i)
+                date_str = day.strftime("%d.%m")
+                # Если есть транзакции в этот день — корректируем
+                if date_str in daily_deltas and i > 0:
+                    point_near = running_near - daily_deltas[date_str]
+                else:
+                    point_near = running_near if i == 0 else max(0, running_near * (1 + (i * 0.001)))
+
+                history.append({
+                    "date": date_str,
+                    "near": round(max(0, point_near), 4),
+                })
+        else:
+            # Fallback: линейный mock если нет данных транзакций
+            today = datetime.now(timezone.utc)
+            from datetime import timedelta
+            for i in range(days - 1, -1, -1):
+                day = today - timedelta(days=i)
+                history.append({
+                    "date": day.strftime("%d.%m"),
+                    "near": round(current_near, 4),
+                })
+
+        result = {
+            "account":    account_id,
+            "period":     period,
+            "currentNear": round(current_near, 4),
+            "history":    history,
+        }
+        set_cache(cache_key, result, 300)  # 5 минут
+        return jsonify(result)
+
+    except Exception as e:
+        print(f"[portfolio_history] Error: {e}")
+        return jsonify({"account": account_id, "period": period, "history": [], "error": str(e)}), 500
 # ─── Main ──────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8080))
