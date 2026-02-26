@@ -475,14 +475,16 @@ bot.command('test_notify', async (ctx) => {
 // ─── Форматирование сравнения балансов ────────────────────────────────────
 function formatBalanceComparison(balance24h, currentNear, currentHot) {
   if (!balance24h) return '';
-  const dNear = currentNear - balance24h.nearAmount;
-  const dHot  = currentHot  - balance24h.hotAmount;
+  const prevNear = balance24h.nearAmount ?? balance24h.nearBalance ?? 0;
+  const prevHot  = balance24h.hotAmount  ?? balance24h.hotBalance  ?? 0;
+  const dNear = currentNear - prevNear;
+  const dHot  = currentHot  - prevHot;
   const nearSign = dNear >= 0 ? '+' : '';
   const hotSign  = dHot  >= 0 ? '+' : '';
   return (
     '📊 *Динамика за 24ч*\n' +
-    `NEAR: ${fmt(balance24h.nearAmount)} → ${fmt(currentNear)} (${nearSign}${fmt(dNear)})\n` +
-    `HOT: ${fmt(balance24h.hotAmount)} → ${fmt(currentHot)} (${hotSign}${fmt(dHot)})`
+    `NEAR: ${fmt(prevNear)} → ${fmt(currentNear)} (${nearSign}${fmt(dNear)})\n` +
+    `HOT: ${fmt(prevHot)} → ${fmt(currentHot)} (${hotSign}${fmt(dHot)})`
   );
 }
 
