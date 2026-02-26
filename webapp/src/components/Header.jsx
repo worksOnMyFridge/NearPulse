@@ -1,67 +1,152 @@
-import { Sun, Moon } from 'lucide-react';
-import { useTheme } from '../contexts/ThemeContext';
+import { useTheme } from '../hooks/useTheme';
+import { ThemeSwitcher } from './ThemeSwitcher';
+
+const THEME_GLOW = {
+  ocean:   'rgba(0, 102, 255, 0.3)',
+  purple:  'rgba(123, 47, 190, 0.35)',
+  emerald: 'rgba(0, 176, 155, 0.25)',
+};
+
+const TABS = [
+  { key: 'overview',      label: 'Обзор',       icon: '⊙' },
+  { key: 'transactions',  label: 'Транзакции',   icon: '↕' },
+  { key: 'analytics',     label: 'Аналитика',    icon: '📊' },
+  { key: 'gallery',       label: 'NFT',          icon: '🖼' },
+];
 
 export default function Header({ address, currentScreen, onScreenChange }) {
-  const { theme, toggleTheme } = useTheme();
-  
-  const tabs = [
-    { key: 'overview', label: 'Обзор' },
-    { key: 'transactions', label: 'Транзакции' },
-    { key: 'analytics', label: 'Аналитика' },
-    { key: 'gallery', label: '🎨 Галерея' },
-  ];
+  const { theme } = useTheme();
 
   return (
-    <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white sticky top-0 z-10 shadow-lg">
-      <div className="p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center text-white font-bold shadow-lg">
-              NP
+    <div style={{
+      position: 'sticky',
+      top: 0,
+      zIndex: 10,
+      background: 'var(--bg-primary)',
+      borderBottom: '1px solid var(--border-primary)',
+      backdropFilter: 'blur(20px)',
+    }}>
+      {/* Glow effect */}
+      <div style={{
+        position: 'absolute',
+        top: -40,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        width: 300,
+        height: 120,
+        borderRadius: '50%',
+        background: `radial-gradient(ellipse, ${THEME_GLOW[theme] || THEME_GLOW.ocean} 0%, transparent 70%)`,
+        pointerEvents: 'none',
+      }} />
+
+      {/* Top row */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '14px 16px 10px',
+        position: 'relative',
+      }}>
+        {/* Logo */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{
+            width: 36,
+            height: 36,
+            borderRadius: 10,
+            background: 'var(--accent-gradient)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontWeight: 700,
+            fontSize: 14,
+            color: '#fff',
+            flexShrink: 0,
+          }}>NP</div>
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 16, color: 'var(--text-primary)', lineHeight: 1.2 }}>
+              NearPulse
             </div>
-            <div>
-              <div className="font-bold text-lg">NearPulse</div>
-              <div className="text-xs opacity-80">Transaction Intelligence</div>
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', letterSpacing: '0.03em' }}>
+              Wallet Intelligence
             </div>
           </div>
-          
-          {/* Theme Toggle Button */}
-          <button
-            onClick={toggleTheme}
-            className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center hover:bg-white/30 transition-all duration-300 shadow-lg hover:scale-110"
-            aria-label="Toggle theme"
-          >
-            {theme === 'dark' ? (
-              <Sun className="w-5 h-5 text-yellow-300" />
-            ) : (
-              <Moon className="w-5 h-5 text-blue-300" />
-            )}
-          </button>
         </div>
 
-        {address && (
-          <div className="flex items-center gap-2 text-sm glass-subtle rounded-lg px-3 py-2">
-            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse-dot shadow-lg"></div>
-            <span className="opacity-90 font-medium">{address}</span>
-          </div>
-        )}
+        {/* Theme switcher */}
+        <ThemeSwitcher />
       </div>
 
-      <div className="flex border-t border-white/10">
-        {tabs.map(tab => (
-          <button
-            key={tab.key}
-            onClick={() => onScreenChange(tab.key)}
-            className={`flex-1 py-3 text-sm font-medium transition-all duration-200 relative ${
-              currentScreen === tab.key ? 'text-white' : 'text-white/60 hover:text-white/80'
-            }`}
-          >
-            {tab.label}
-            {currentScreen === tab.key && (
-              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-white shadow-lg"></div>
-            )}
-          </button>
-        ))}
+      {/* Wallet address */}
+      {address && (
+        <div style={{ padding: '0 16px 10px' }}>
+          <div style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border-primary)',
+            borderRadius: 100,
+            padding: '5px 12px 5px 8px',
+            backdropFilter: 'blur(10px)',
+          }}>
+            <div style={{
+              width: 20,
+              height: 20,
+              borderRadius: '50%',
+              background: 'var(--accent-gradient)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 10,
+            }}>◎</div>
+            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
+              {address}
+            </span>
+            <span style={{ fontSize: 11, color: 'var(--color-positive)' }}>●</span>
+          </div>
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div style={{
+        display: 'flex',
+        borderTop: '1px solid var(--border-primary)',
+      }}>
+        {TABS.map(tab => {
+          const active = currentScreen === tab.key;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => onScreenChange(tab.key)}
+              style={{
+                flex: 1,
+                padding: '10px 4px',
+                border: 'none',
+                background: 'transparent',
+                cursor: 'pointer',
+                fontSize: 12,
+                fontWeight: active ? 600 : 400,
+                color: active ? 'var(--text-accent)' : 'var(--text-tertiary)',
+                fontFamily: 'var(--font-main)',
+                position: 'relative',
+                transition: 'all 0.2s',
+              }}
+            >
+              {tab.label}
+              {active && (
+                <div style={{
+                  position: 'absolute',
+                  bottom: 0,
+                  left: '20%',
+                  right: '20%',
+                  height: 2,
+                  borderRadius: 2,
+                  background: 'var(--accent-gradient)',
+                }} />
+              )}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

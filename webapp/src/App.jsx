@@ -8,9 +8,11 @@ import AnalyticsScreen from './components/AnalyticsScreen';
 import GalleryScreenStable from './components/GalleryScreenStable';
 import LoadingSpinner from './components/LoadingSpinner';
 import AiChatWidget from './components/AiChatWidget';
+import { useTheme } from './hooks/useTheme';
 
 export default function App() {
   const { tg, address } = useTelegram();
+  const { theme } = useTheme();
   const [currentScreen, setCurrentScreen] = useState('overview');
   const [selectedPeriod, setSelectedPeriod] = useState('week');
   const [balanceData, setBalanceData] = useState(null);

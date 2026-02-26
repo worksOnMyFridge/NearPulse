@@ -13,6 +13,7 @@ from collections import defaultdict
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from dotenv import load_dotenv
+from datetime import datetime, timezone, timedelta
 
 load_dotenv()
 
@@ -555,14 +556,14 @@ def analyze_transaction_group(tx_group, user_address):
     total_near_deposit = 0
     total_near_received = 0
     for tx in relevant:
-        deposit = float(tx.get("actions_agg", {}).get("deposit", 0)) / 1e24
+        deposit = float((tx.get("actions_agg") or {}).get("deposit", 0)) / 1e24
         if tx.get("predecessor_account_id") == user_address:
             total_near_deposit += deposit
         elif tx.get("receiver_account_id") == user_address:
             total_near_received += deposit
 
     gas_fee = sum(
-        float(tx.get("outcomes_agg", {}).get("transaction_fee", 0) or 0) / 1e24
+        float((tx.get("outcomes_agg") or {}).get("transaction_fee", 0) or 0) / 1e24
         for tx in relevant
     )
 
@@ -645,7 +646,7 @@ def analyze_transaction_group(tx_group, user_address):
     details = []
     token_transfers = []
     for tx in relevant:
-        fee = float(tx.get("outcomes_agg", {}).get("transaction_fee", 0)) / 1e24
+        fee = float((tx.get("outcomes_agg") or {}).get("transaction_fee", 0)) / 1e24
         actions = tx.get("actions", [])
         method = ""
         for a in actions:
@@ -1183,7 +1184,6 @@ def api_portfolio_history(account_id):
             today = datetime.now(timezone.utc)
             for i in range(days - 1, -1, -1):
                 day = today.replace(hour=0, minute=0, second=0)
-                from datetime import timedelta
                 day = today - timedelta(days=i)
                 date_str = day.strftime("%d.%m")
                 # Если есть транзакции в этот день — корректируем
@@ -1199,7 +1199,6 @@ def api_portfolio_history(account_id):
         else:
             # Fallback: линейный mock если нет данных транзакций
             today = datetime.now(timezone.utc)
-            from datetime import timedelta
             for i in range(days - 1, -1, -1):
                 day = today - timedelta(days=i)
                 history.append({

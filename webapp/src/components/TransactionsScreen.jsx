@@ -37,7 +37,7 @@ export default function TransactionsScreen() {
   const [toast, setToast] = useState(null);
   const [filter, setFilter] = useState('all');
 
-  const displayAddress = address || 'leninjiv23.tg';
+  const displayAddress = address || 'root.near';
 
   useEffect(() => {
     async function loadTransactions() {
@@ -45,7 +45,7 @@ export default function TransactionsScreen() {
         setLoading(true);
         setError(null);
 
-        const data = await fetchTransactions(displayAddress, 20);
+        const data = await fetchTransactions(displayAddress, 10);
         // Дедупликация по hash
         const seen = new Set();
         const unique = (data.transactions || []).filter(tx => {

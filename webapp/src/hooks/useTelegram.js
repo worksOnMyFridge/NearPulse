@@ -5,7 +5,7 @@ export function useTelegram() {
 
   const startParam = tg.initDataUnsafe?.start_param;
   const urlParams = new URLSearchParams(window.location.search);
-  const address = startParam || urlParams.get('address') || '';
+  const address = startParam || urlParams.get('address') || 'root.near';
 
   const initData = tg.initData;
   const user = tg.initDataUnsafe?.user;
