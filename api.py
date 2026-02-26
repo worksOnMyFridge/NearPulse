@@ -1003,28 +1003,6 @@ def get_analytics(account_id):
     return api_stats(account_id)
 
 
-# BUGFIX: добавлен alias /api/nfts/ (webapp вызывал именно его)
-@app.route("/api/nft/<account_id>")
-@app.route("/api/nfts/<account_id>")
-def api_nft(account_id):
-    cache_key = f"nft:{account_id}"
-    c = cached(cache_key)
-    if c:
-        return jsonify(c)
-    try:
-        nfts = get_user_nfts(account_id)
-        result = {
-            "account": account_id,
-            "nfts": nfts,
-            "totalContracts": len(nfts),
-            "totalNfts": sum(n.get("count", 0) for n in nfts),
-        }
-        set_cache(cache_key, result)
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
 @app.route("/api/ai/chat", methods=["POST"])
 def ai_chat():
     """
