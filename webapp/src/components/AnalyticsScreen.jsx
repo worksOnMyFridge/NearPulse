@@ -197,7 +197,7 @@ export default function AnalyticsScreen({ selectedPeriod, balanceData }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const displayAddress = address || 'leninjiv23.tg';
+  const displayAddress = address || 'root.near';
 
   useEffect(() => {
     async function loadAnalytics() {

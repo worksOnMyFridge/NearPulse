@@ -1,319 +1,205 @@
 """
-NearPulse — NFT модуль с пагинацией и ленивой загрузкой метаданных.
+NearPulse — NFT модуль v2.
+Стратегия: только NearBlocks API (уже проиндексировано) + FastNEAR для контрактов.
+Никаких прямых RPC вызовов для токенов — они ненадёжны и медленны.
 
-Принцип работы:
-1. FastNEAR отдаёт ВСЕ контракты + токены одним запросом → кэш на 15 мин
-2. /api/nfts/<account> возвращает только список контрактов (без картинок) → мгновенно
-3. /api/nft-meta/<account>/<contract> — метаданные одного контракта → lazy, по требованию
-4. /api/nfts/<account>?page=1&per_page=20 — пагинация токенов
-
-Так 300 NFT не вызывают 300 RPC запросов при загрузке.
+Endpoints:
+  GET /api/nfts/<account>                          → список коллекций
+  GET /api/nft-tokens/<account>?page=1&per_page=24 → все NFT с медиа, пагинация
+  GET /api/nft-meta/<account>/<contract>           → метаданные контракта
 """
-import os
-import json
-import time
+import os, json, time, base64
 import requests as http_requests
 from flask import jsonify, request
 
-FASTNEAR_API   = "https://api.fastnear.com/v1"
 NEARBLOCKS_API = "https://api.nearblocks.io/v1"
+FASTNEAR_API   = "https://api.fastnear.com/v1"
 NEAR_RPC_URL   = "https://rpc.mainnet.near.org"
-NFT_CACHE_TTL  = 900  # 15 минут — NFT меняются редко
-META_CACHE_TTL = 3600 # 1 час — метаданные контракта стабильны
-API_TIMEOUT    = 8
-
-
-# ─── Используй тот же cache из api.py ─────────────────────────────────────
-# Этот файл подключается к api.py через import, поэтому cached/set_cache
-# берутся оттуда. Здесь они продублированы для автономного использования.
+API_TIMEOUT    = 10
+NFT_CACHE_TTL  = 600
+META_CACHE_TTL = 3600
 
 _mem_cache = {}
 
-def _cached(key, cache_dict=None):
-    d = cache_dict if cache_dict is not None else _mem_cache
-    entry = d.get(key)
-    if entry and time.time() - entry["ts"] < entry.get("ttl", NFT_CACHE_TTL):
-        return entry["data"]
+def _cached(key, ttl=NFT_CACHE_TTL):
+    e = _mem_cache.get(key)
+    if e and time.time() - e["ts"] < ttl:
+        return e["data"]
     return None
 
-def _set_cache(key, data, ttl=NFT_CACHE_TTL, cache_dict=None):
-    d = cache_dict if cache_dict is not None else _mem_cache
-    d[key] = {"data": data, "ts": time.time(), "ttl": ttl}
+def _set_cache(key, data, ttl=NFT_CACHE_TTL):
+    _mem_cache[key] = {"data": data, "ts": time.time(), "ttl": ttl}
+
+def _nb_headers():
+    key = os.environ.get("NEARBLOCKS_API_KEY", "")
+    return {"Authorization": f"Bearer {key}"} if key else {}
+
+IPFS_GATEWAY = "https://ipfs.near.social/ipfs/"
+
+def normalize_media(media, base_uri=None):
+    if not media:
+        return None
+    if media.startswith("http"):
+        return media
+    if media.startswith("data:"):
+        return media[:2000] if len(media) > 2000 else media
+    if media.startswith("Qm") or media.startswith("bafy") or media.startswith("bafk"):
+        return f"{IPFS_GATEWAY}{media}"
+    if media.startswith("/ipfs/"):
+        return f"https://ipfs.near.social{media}"
+    if base_uri:
+        sep = "" if base_uri.endswith("/") else "/"
+        return f"{base_uri}{sep}{media}"
+    return f"{IPFS_GATEWAY}{media}"
+
+def _contract_display_name(contract_id):
+    parts = contract_id.split(".")
+    name = parts[0] if parts else contract_id
+    if "mintbase" in contract_id:
+        return f"Mintbase · {name[:10]}"
+    if "paras" in contract_id:
+        return "Paras"
+    return name[:24].replace("-", " ").title()
 
 
-# ─── Шаг 1: получить ВСЕ NFT контракты одним запросом (FastNEAR) ──────────
 def fetch_nft_contracts(account_id):
-    """
-    Возвращает список контрактов с кол-вом токенов.
-    Один HTTP-запрос, без индивидуальных RPC вызовов.
-    """
-    cache_key = f"nft_contracts:{account_id}"
-    cached = _cached(cache_key)
+    key = f"nft_contracts:{account_id}"
+    cached = _cached(key, NFT_CACHE_TTL)
     if cached is not None:
         return cached
-
     result = []
     try:
-        # FastNEAR: один запрос → все NFT контракты
-        r = http_requests.get(
-            f"{FASTNEAR_API}/account/{account_id}/nft",
-            timeout=API_TIMEOUT,
-        )
+        r = http_requests.get(f"{FASTNEAR_API}/account/{account_id}/nft", timeout=API_TIMEOUT)
         if r.status_code == 200:
             data = r.json()
-            # FastNEAR возвращает { "contract_id": [token_ids...] } или список
             tokens = data.get("tokens", data) if isinstance(data, dict) else data
-
             if isinstance(tokens, dict):
                 for contract_id, token_ids in tokens.items():
                     ids = token_ids if isinstance(token_ids, list) else []
-                    result.append({
-                        "contract": contract_id,
-                        "count": len(ids),
-                        "tokenIds": ids[:5],  # Только первые 5 для превью
-                    })
+                    result.append({"contract": contract_id, "count": len(ids)})
             elif isinstance(tokens, list):
                 for item in tokens:
                     if isinstance(item, dict):
                         result.append({
                             "contract": item.get("contract_id", item.get("contract", "")),
                             "count": item.get("count", 0),
-                            "tokenIds": item.get("token_ids", [])[:5],
                         })
                     elif isinstance(item, str):
-                        result.append({"contract": item, "count": 0, "tokenIds": []})
-        else:
-            print(f"[FastNEAR NFT] status {r.status_code}, trying NearBlocks fallback")
-            result = _fetch_nft_contracts_nearblocks(account_id)
-
+                        result.append({"contract": item, "count": 0})
     except Exception as e:
-        print(f"[fetch_nft_contracts] FastNEAR error: {e}, trying NearBlocks")
-        result = _fetch_nft_contracts_nearblocks(account_id)
-
-    _set_cache(cache_key, result, ttl=NFT_CACHE_TTL)
+        print(f"[NFT contracts] error: {e}")
+        try:
+            r = http_requests.get(
+                f"{NEARBLOCKS_API}/account/{account_id}/inventory",
+                headers=_nb_headers(), timeout=API_TIMEOUT
+            )
+            if r.status_code == 200:
+                for item in r.json().get("inventory", {}).get("nfts", []):
+                    result.append({"contract": item.get("contract", ""), "count": item.get("quantity", 0)})
+        except Exception as e2:
+            print(f"[NFT contracts fallback] error: {e2}")
+    _set_cache(key, result, NFT_CACHE_TTL)
     return result
 
 
-def _fetch_nft_contracts_nearblocks(account_id):
-    """Fallback: NearBlocks inventory (без индивидуальных RPC)."""
+def fetch_all_nfts_paged(account_id, page=1, per_page=24):
+    key = f"nft_all:{account_id}:p{page}:pp{per_page}"
+    cached = _cached(key, NFT_CACHE_TTL)
+    if cached is not None:
+        return cached
     try:
-        nearblocks_key = os.environ.get("NEARBLOCKS_API_KEY", "")
-        headers = {"Authorization": f"Bearer {nearblocks_key}"} if nearblocks_key else {}
         r = http_requests.get(
-            f"{NEARBLOCKS_API}/account/{account_id}/inventory",
-            headers=headers,
+            f"{NEARBLOCKS_API}/account/{account_id}/inventory/nfts",
+            params={"page": page, "per_page": per_page},
+            headers=_nb_headers(),
             timeout=API_TIMEOUT,
         )
         if r.status_code != 200:
-            return []
-        nfts = r.json().get("inventory", {}).get("nfts", [])
-        result = []
-        for item in nfts:
-            result.append({
-                "contract": item.get("contract", ""),
-                "count": item.get("quantity", item.get("count", 0)),
-                "tokenIds": [],  # NearBlocks не даёт token_ids в inventory
+            return {"tokens": [], "hasMore": False, "total": 0, "error": f"HTTP {r.status_code}"}
+        data = r.json()
+        raw_tokens = data.get("nfts", data.get("tokens", []))
+        total = data.get("total", len(raw_tokens))
+        tokens = []
+        for t in raw_tokens:
+            nft_meta = t.get("nft", {}) or {}
+            contract = t.get("contract_account_id") or t.get("contract") or nft_meta.get("contract", "")
+            contract_meta = t.get("nft_meta") or t.get("contract_meta") or {}
+            media = t.get("media") or nft_meta.get("media") or (t.get("metadata") or {}).get("media")
+            base_uri = contract_meta.get("base_uri") or nft_meta.get("base_uri")
+            icon = contract_meta.get("icon", "")
+            tokens.append({
+                "tokenId": t.get("token_id") or nft_meta.get("token_id", ""),
+                "title": t.get("title") or nft_meta.get("title") or (t.get("metadata") or {}).get("title") or f"#{t.get('token_id','?')}",
+                "media": normalize_media(media, base_uri),
+                "contract": contract,
+                "contractName": contract_meta.get("name") or _contract_display_name(contract),
+                "contractIcon": icon[:5000] if icon and len(str(icon)) < 50000 else None,
             })
+        result = {"tokens": tokens, "page": page, "perPage": per_page, "total": total, "hasMore": len(raw_tokens) == per_page}
+        _set_cache(key, result, NFT_CACHE_TTL)
         return result
     except Exception as e:
-        print(f"[_fetch_nft_contracts_nearblocks] Error: {e}")
-        return []
+        print(f"[fetch_all_nfts_paged] Error: {e}")
+        return {"tokens": [], "hasMore": False, "total": 0, "error": str(e)}
 
 
-# ─── Шаг 2: метаданные контракта (ленивая загрузка) ───────────────────────
 def fetch_contract_meta(contract_id):
-    """
-    Получает метаданные NFT-контракта: имя, символ, иконку.
-    Один RPC вызов на контракт, кэш 1 час.
-    """
-    cache_key = f"nft_meta:{contract_id}"
-    cached = _cached(cache_key)
+    key = f"nft_meta:{contract_id}"
+    cached = _cached(key, META_CACHE_TTL)
     if cached is not None:
         return cached
-
-    meta = {
-        "name": _contract_display_name(contract_id),
-        "symbol": None,
-        "icon": None,
-        "baseUri": None,
-    }
-
+    meta = {"name": _contract_display_name(contract_id), "symbol": None, "icon": None}
     try:
-        import base64
-        r = http_requests.post(
-            NEAR_RPC_URL,
-            json={
-                "jsonrpc": "2.0",
-                "id": "meta",
-                "method": "query",
-                "params": {
-                    "request_type": "call_function",
-                    "finality": "final",
-                    "account_id": contract_id,
-                    "method_name": "nft_metadata",
-                    "args_base64": base64.b64encode(b"{}").decode(),
-                },
-            },
-            timeout=5,  # Короткий таймаут — не блокируем
-        )
+        args_b64 = base64.b64encode(b"{}").decode()
+        r = http_requests.post(NEAR_RPC_URL, json={
+            "jsonrpc": "2.0", "id": "meta", "method": "query",
+            "params": {"request_type": "call_function", "finality": "final",
+                       "account_id": contract_id, "method_name": "nft_metadata", "args_base64": args_b64},
+        }, timeout=5)
         if r.status_code == 200:
-            data = r.json()
-            result_bytes = data.get("result", {}).get("result")
+            result_bytes = r.json().get("result", {}).get("result")
             if result_bytes:
-                raw = bytes(result_bytes).decode("utf-8")
-                nft_meta = json.loads(raw)
-                name = nft_meta.get("name", "")
+                nft_meta = json.loads(bytes(result_bytes).decode("utf-8"))
                 icon = nft_meta.get("icon", "")
-                # Обрезаем огромные base64 иконки (> 50KB) — они ломают ответ
-                if icon and len(icon) > 51200:
-                    icon = None
                 meta = {
-                    "name": name or _contract_display_name(contract_id),
+                    "name": nft_meta.get("name") or _contract_display_name(contract_id),
                     "symbol": nft_meta.get("symbol"),
-                    "icon": icon,
+                    "icon": icon[:5000] if icon and len(icon) < 50000 else None,
                     "baseUri": nft_meta.get("base_uri"),
                 }
     except Exception as e:
-        print(f"[fetch_contract_meta] {contract_id}: {e}")
-
-    _set_cache(cache_key, meta, ttl=META_CACHE_TTL)
+        print(f"[contract_meta] {contract_id}: {e}")
+    _set_cache(key, meta, META_CACHE_TTL)
     return meta
 
 
-def _contract_display_name(contract_id):
-    """Красивое имя из контракта без RPC."""
-    parts = contract_id.split(".")
-    name = parts[0] if parts else contract_id
-    # mintbase: "xxxxxxxxx.mintbase1.near" → берём первую часть
-    if "mintbase" in contract_id:
-        return f"Mintbase ({name[:12]})"
-    if "paras" in contract_id:
-        return f"Paras ({name[:12]})"
-    return name[:20].replace("-", " ").title()
+def register_nft_routes(app, cached_fn=None, set_cache_fn=None):
 
-
-# ─── Шаг 3: токены внутри контракта с пагинацией ──────────────────────────
-def fetch_nft_tokens_page(account_id, contract_id, page=1, per_page=12):
-    """
-    Возвращает токены одного контракта с пагинацией.
-    Делает ОДИН RPC вызов с limit+offset, не 300.
-    """
-    cache_key = f"nft_tokens:{account_id}:{contract_id}:p{page}"
-    cached = _cached(cache_key, _mem_cache)
-    if cached is not None:
-        return cached
-
-    from_index = (page - 1) * per_page
-    tokens = []
-
-    try:
-        import base64
-        args = json.dumps({
-            "account_id": account_id,
-            "from_index": str(from_index),
-            "limit": per_page,
-        })
-        r = http_requests.post(
-            NEAR_RPC_URL,
-            json={
-                "jsonrpc": "2.0",
-                "id": "tokens",
-                "method": "query",
-                "params": {
-                    "request_type": "call_function",
-                    "finality": "final",
-                    "account_id": contract_id,
-                    "method_name": "nft_tokens_for_owner",
-                    "args_base64": base64.b64encode(args.encode()).decode(),
-                },
-            },
-            timeout=6,
-        )
-        if r.status_code == 200:
-            data = r.json()
-            result_bytes = data.get("result", {}).get("result")
-            if result_bytes:
-                raw = bytes(result_bytes).decode("utf-8")
-                raw_tokens = json.loads(raw)
-                for t in raw_tokens:
-                    metadata = t.get("metadata", {}) or {}
-                    media = metadata.get("media", "")
-                    # Нормализуем URL медиа
-                    if media and not media.startswith("http") and not media.startswith("data:"):
-                        base_uri = None  # будет подставлен клиентом
-                    tokens.append({
-                        "tokenId": t.get("token_id", ""),
-                        "title": metadata.get("title") or f"#{t.get('token_id', '?')}",
-                        "description": (metadata.get("description") or "")[:100],
-                        "media": media[:500] if media else None,  # Обрезаем длинные data:URI
-                        "extra": metadata.get("extra"),
-                    })
-    except Exception as e:
-        print(f"[fetch_nft_tokens_page] {contract_id} p{page}: {e}")
-
-    result = {"tokens": tokens, "page": page, "perPage": per_page}
-    _set_cache(cache_key, result, ttl=300)  # 5 мин для токенов
-    return result
-
-
-# ─── Flask endpoints (подключать в api.py) ────────────────────────────────
-
-def register_nft_routes(app, cached_fn, set_cache_fn):
-    """
-    Регистрирует NFT endpoints в Flask приложении.
-    cached_fn, set_cache_fn — функции кэша из api.py (Redis + in-memory).
-    """
-
-    @app.route("/api/nft/<account_id>")
     @app.route("/api/nfts/<account_id>")
-    def api_nft(account_id):
-        """
-        Возвращает список NFT контрактов с кол-вом токенов.
-        БЕЗ метаданных и картинок — только структура.
-        Один HTTP-запрос к FastNEAR.
-        """
-        page = request.args.get("page", 1, type=int)
+    @app.route("/api/nft/<account_id>")
+    def api_nft_contracts(account_id):
+        page     = request.args.get("page", 1, type=int)
         per_page = min(request.args.get("per_page", 20, type=int), 50)
-
-        # Берём все контракты из кэша или FastNEAR
         all_contracts = fetch_nft_contracts(account_id)
-
-        total_contracts = len(all_contracts)
-        total_nfts = sum(c.get("count", 0) for c in all_contracts)
-
-        # Пагинация по контрактам
+        total = len(all_contracts)
         start = (page - 1) * per_page
-        end = start + per_page
-        page_contracts = all_contracts[start:end]
-
+        page_data = all_contracts[start : start + per_page]
         return jsonify({
             "account": account_id,
-            "nfts": page_contracts,        # Только страница
-            "totalContracts": total_contracts,
-            "totalNfts": total_nfts,
-            "page": page,
-            "perPage": per_page,
-            "totalPages": max(1, -(-total_contracts // per_page)),  # ceil division
-            "hasMore": end < total_contracts,
+            "nfts": page_data,
+            "totalContracts": total,
+            "totalNfts": sum(c.get("count", 0) for c in all_contracts),
+            "page": page, "perPage": per_page,
+            "totalPages": max(1, -(-total // per_page)),
+            "hasMore": start + per_page < total,
         })
+
+    @app.route("/api/nft-tokens/<account_id>")
+    def api_nft_tokens_all(account_id):
+        page     = request.args.get("page", 1, type=int)
+        per_page = min(request.args.get("per_page", 24, type=int), 48)
+        return jsonify(fetch_all_nfts_paged(account_id, page, per_page))
 
     @app.route("/api/nft-meta/<account_id>/<path:contract_id>")
     def api_nft_meta(account_id, contract_id):
-        """
-        Метаданные одного NFT контракта.
-        Вызывается лениво — только когда карточка прокручена в viewport.
-        """
-        meta = fetch_contract_meta(contract_id)
-        return jsonify({"contract": contract_id, **meta})
-
-    @app.route("/api/nft-tokens/<account_id>/<path:contract_id>")
-    def api_nft_tokens(account_id, contract_id):
-        """
-        Токены пользователя внутри конкретного контракта с пагинацией.
-        Один RPC вызов с limit+offset.
-        """
-        page = request.args.get("page", 1, type=int)
-        per_page = min(request.args.get("per_page", 12, type=int), 24)
-
-        result = fetch_nft_tokens_page(account_id, contract_id, page, per_page)
-        return jsonify(result)
+        return jsonify({"contract": contract_id, **fetch_contract_meta(contract_id)})

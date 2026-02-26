@@ -17,7 +17,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const displayAddress = address || 'leninjiv23.tg';
+  const displayAddress = address || 'root.near';
 
   useEffect(() => {
     try {
