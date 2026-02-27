@@ -556,14 +556,15 @@ def analyze_transaction_group(tx_group, user_address):
     total_near_deposit = 0
     total_near_received = 0
     for tx in relevant:
-        deposit = float((tx.get("actions_agg") or {}).get("deposit", 0)) / 1e24
+        _agg = tx.get("actions_agg")
+        deposit = float((_agg if isinstance(_agg, dict) else {}).get("deposit", 0)) / 1e24
         if tx.get("predecessor_account_id") == user_address:
             total_near_deposit += deposit
         elif tx.get("receiver_account_id") == user_address:
             total_near_received += deposit
 
     gas_fee = sum(
-        float((tx.get("outcomes_agg") or {}).get("transaction_fee", 0) or 0) / 1e24
+        float(((tx.get("outcomes_agg") if isinstance(tx.get("outcomes_agg"), dict) else {})).get("transaction_fee", 0) or 0) / 1e24
         for tx in relevant
     )
 
@@ -646,7 +647,8 @@ def analyze_transaction_group(tx_group, user_address):
     details = []
     token_transfers = []
     for tx in relevant:
-        fee = float((tx.get("outcomes_agg") or {}).get("transaction_fee", 0)) / 1e24
+        _oa = tx.get("outcomes_agg")
+        fee = float((_oa if isinstance(_oa, dict) else {}).get("transaction_fee", 0)) / 1e24
         actions = tx.get("actions", [])
         method = ""
         for a in actions:
