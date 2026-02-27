@@ -1171,8 +1171,10 @@ def api_portfolio_history(account_id):
             for tx in period_txns:
                 ts_ms = int(tx.get("block_timestamp", 0)) / 1e6
                 date  = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).strftime("%d.%m")
-                deposit_yocto = int(tx.get("actions_agg", {}).get("deposit", 0) or 0)
-                fee_yocto     = int(tx.get("outcomes_agg", {}).get("transaction_fee", 0) or 0)
+                _agg = tx.get("actions_agg")
+                deposit_yocto = int((_agg if isinstance(_agg, dict) else {}).get("deposit", 0) or 0)
+                _oa = tx.get("outcomes_agg")
+                fee_yocto = int((_oa if isinstance(_oa, dict) else {}).get("transaction_fee", 0) or 0)
                 is_receiver   = tx.get("receiver_account_id") == account_id
                 delta = 0
                 if is_receiver:
