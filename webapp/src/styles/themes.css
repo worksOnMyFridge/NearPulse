@@ -1,0 +1,96 @@
+/* ============================================
+   NearPulse — Design System / Theme Variables
+   ============================================ */
+
+/* ---- Base (shared across all themes) ---- */
+:root {
+    --font-main: 'DM Sans', sans-serif;
+    --font-mono: 'DM Mono', monospace;
+  
+    --radius-card: 20px;
+    --radius-pill: 100px;
+    --radius-btn: 14px;
+  
+    --color-positive: #00D264;
+    --color-negative: #FF4D6A;
+    --color-warning: #FFB300;
+    --color-hot: #FF6B00;
+  }
+  
+  /* ---- 🌊 Deep Ocean (default) ---- */
+  [data-theme="ocean"], :root {
+    --bg-base: #080C14;
+    --bg-card: rgba(255, 255, 255, 0.04);
+    --bg-card-hover: rgba(255, 255, 255, 0.07);
+    --bg-pill: rgba(255, 255, 255, 0.07);
+  
+    --border-card: rgba(255, 255, 255, 0.07);
+    --border-pill: rgba(255, 255, 255, 0.1);
+  
+    --accent-primary: #0066FF;
+    --accent-secondary: #00D2FF;
+    --accent-gradient: linear-gradient(135deg, #0066FF, #00D2FF);
+    --accent-glow: rgba(0, 102, 255, 0.25);
+    --accent-subtle: rgba(0, 102, 255, 0.1);
+    --accent-border: rgba(0, 102, 255, 0.2);
+  
+    --text-primary: #FFFFFF;
+    --text-secondary: rgba(255, 255, 255, 0.5);
+    --text-tertiary: rgba(255, 255, 255, 0.25);
+    --text-accent: #4D9FFF;
+  
+    --nav-bg: rgba(8, 12, 20, 0.92);
+    --nav-border: rgba(255, 255, 255, 0.06);
+  }
+  
+  /* ---- 🌌 Cosmic Purple ---- */
+  [data-theme="purple"] {
+    --bg-base: #0A0812;
+    --bg-card: rgba(123, 47, 190, 0.08);
+    --bg-card-hover: rgba(123, 47, 190, 0.13);
+    --bg-pill: rgba(123, 47, 190, 0.15);
+  
+    --border-card: rgba(224, 64, 251, 0.1);
+    --border-pill: rgba(224, 64, 251, 0.15);
+  
+    --accent-primary: #7B2FBE;
+    --accent-secondary: #E040FB;
+    --accent-gradient: linear-gradient(135deg, #7B2FBE, #E040FB);
+    --accent-glow: rgba(123, 47, 190, 0.3);
+    --accent-subtle: rgba(123, 47, 190, 0.12);
+    --accent-border: rgba(224, 64, 251, 0.15);
+  
+    --text-primary: #FFFFFF;
+    --text-secondary: rgba(255, 255, 255, 0.5);
+    --text-tertiary: rgba(255, 255, 255, 0.25);
+    --text-accent: #C77DFF;
+  
+    --nav-bg: rgba(10, 8, 18, 0.92);
+    --nav-border: rgba(224, 64, 251, 0.08);
+  }
+  
+  /* ---- 🌿 Emerald Night ---- */
+  [data-theme="emerald"] {
+    --bg-base: #050E0A;
+    --bg-card: rgba(0, 176, 155, 0.06);
+    --bg-card-hover: rgba(0, 176, 155, 0.1);
+    --bg-pill: rgba(0, 176, 155, 0.1);
+  
+    --border-card: rgba(0, 176, 155, 0.12);
+    --border-pill: rgba(0, 176, 155, 0.15);
+  
+    --accent-primary: #00B09B;
+    --accent-secondary: #96C93D;
+    --accent-gradient: linear-gradient(135deg, #00B09B, #96C93D);
+    --accent-glow: rgba(0, 176, 155, 0.2);
+    --accent-subtle: rgba(0, 176, 155, 0.08);
+    --accent-border: rgba(0, 176, 155, 0.15);
+  
+    --text-primary: #FFFFFF;
+    --text-secondary: rgba(255, 255, 255, 0.5);
+    --text-tertiary: rgba(255, 255, 255, 0.25);
+    --text-accent: #00B09B;
+  
+    --nav-bg: rgba(5, 14, 10, 0.92);
+    --nav-border: rgba(0, 176, 155, 0.08);
+  }
