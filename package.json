@@ -16,7 +16,7 @@
     "vercel-build": "cd webapp && npm ci && npm run build"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": "20.x"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
