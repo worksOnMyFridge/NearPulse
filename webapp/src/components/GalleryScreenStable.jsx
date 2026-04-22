@@ -58,7 +58,7 @@ function NftCard({ token }) {
 
 export default function GalleryScreenStable() {
   const { address } = useTelegram();
-  const displayAddress = address || 'leninjiv23.tg';
+  const displayAddress = address || 'root.near';
   const [tokens, setTokens] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -128,7 +128,7 @@ export default function GalleryScreenStable() {
     <div className="rounded-xl p-10 text-center bg-white border border-gray-100">
       <div className="text-5xl mb-3">🖼️</div>
       <div className="font-semibold text-gray-900">NFT не найдены</div>
-      <div className="text-sm text-gray-500 mt-1">На этом кошельке нет NFT</div>
+      <div className="text-sm text-gray-500 mt-1">NFT не найдены для этого кошелька.</div>
     </div>
   );
 

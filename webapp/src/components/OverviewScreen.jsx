@@ -296,7 +296,15 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
               <Info size={16} style={{ opacity: 0.5 }} />
             </div>
             {(() => {
-              const totalUSD = balanceData?.totalUSD || 0;
+              // Calculate client-side so hidden tokens are excluded instantly
+              const hiddenSet  = new Set(manuallyHidden);
+              const tokensUsd  = [
+                ...(balanceData?.tokens?.major    || []),
+                ...(balanceData?.tokens?.filtered || []),
+              ].filter(t => !hiddenSet.has(t.contract))
+               .reduce((s, t) => s + (t.usdValue || 0), 0);
+              // nearUsd already includes staking (nearTotal = near + staking)
+              const totalUSD = nearUsd + tokensUsd;
               const fmtTotal = totalUSD >= 1000
                 ? `$${totalUSD.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                 : `$${totalUSD.toFixed(2)}`;
