@@ -430,6 +430,19 @@ def get_tokens_with_prices(address, min_usd=0.01):
     intear_prices = get_intear_prices(contracts)
     ref_prices = get_ref_finance_prices(contracts)
     cg_prices = get_coingecko_prices(contracts)
+    SPAM_SYMBOL_KEYWORDS   = {"http", "www", ".com", ".org", ".io", "lottery", "reward"}
+    SPAM_NAME_KEYWORDS     = {"http", "www", "to claim", "lottery", "you won"}
+    SPAM_CONTRACT_PATTERNS = {"laboratory.jumpfinance.near"}
+
+    def _is_spam(token):
+        sym  = (token.get("symbol") or "").lower()
+        name = (token.get("name")   or "").lower()
+        c    = (token.get("contract") or "").lower()
+        if any(k in sym  for k in SPAM_SYMBOL_KEYWORDS):   return True
+        if any(k in name for k in SPAM_NAME_KEYWORDS):     return True
+        if any(p in c    for p in SPAM_CONTRACT_PATTERNS): return True
+        return False
+
     results = []
     for t in tokens:
         c = t["contract"]
@@ -444,17 +457,18 @@ def get_tokens_with_prices(address, min_usd=0.01):
             or 0
         )
         usd_value = t["amount"] * price
-        is_major = c.lower() in [m.lower() for m in MAJOR_TOKENS]
-        results.append({**t, "price": price, "usdValue": usd_value, "isMajor": is_major})
+        is_major  = c.lower() in [m.lower() for m in MAJOR_TOKENS]
+        is_spam   = _is_spam(t)
+        results.append({**t, "price": price, "usdValue": usd_value, "isMajor": is_major, "isSpam": is_spam})
 
     major = sorted(
-        [t for t in results if t["isMajor"] and t["price"] > 0 and t["usdValue"] >= min_usd],
+        [t for t in results if t["isMajor"] and not t["isSpam"] and t["price"] > 0 and t["usdValue"] >= min_usd],
         key=lambda x: -x["usdValue"],
     )
     others = [t for t in results if not t["isMajor"]]
     filtered = sorted(
-        [t for t in others if t["usdValue"] >= min_usd or (t["price"] == 0 and t["amount"] > 1000)],
-        key=lambda x: (-x["usdValue"] if x["price"] > 0 else -x["amount"]),
+        [t for t in others if not t["isSpam"] and t["price"] > 0 and t["usdValue"] >= min_usd],
+        key=lambda x: -x["usdValue"],
     )
     hidden = [t for t in others if t not in filtered]
     return {"major": major, "filtered": filtered, "hidden": hidden}
