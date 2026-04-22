@@ -1,0 +1,62 @@
+═══════════════════════════════════════════════════════
+🔍 ЧЕКЛИСТ: Почему Vercel не деплоит новую версию
+═══════════════════════════════════════════════════════
+
+1. ПРОВЕРЬТЕ ГИТ
+   □ В терминале: git status
+   □ Должно быть: "nothing to commit, working tree clean"
+   □ Если есть изменения: git add . && git commit -m "fix" && git push
+
+2. ПРОВЕРЬТЕ VERCEL DASHBOARD
+   □ Зайдите на vercel.com
+   □ Откройте проект NearPulse
+   □ Deployments → последний деплой
+   □ Статус должен быть: "Ready" (не "Building")
+
+3. ПРОВЕРЬТЕ ФАЙЛЫ НА МЕСТЕ
+   □ api/index.js - существует? ✅
+   □ src/api.js - существует? ✅
+   □ src/services/nearService.js - существует? ✅
+   □ vercel.json - валидный JSON? ✅
+
+4. ПРОВЕРЬТЕ ЗАВИСИМОСТИ
+   □ Откройте package.json
+   □ Должно быть:
+      "express": "^4.18.2"
+      "cors": "^2.8.5"
+      "axios": "^1.6.0"
+
+5. ОШИБКА JSON - ЧТО ПРОВЕРИТЬ:
+   □ Откройте F12 → Network в браузере
+   □ Найдите запрос к /api/balance
+   □ Посмотрите Response - что там?
+   
+   Если там HTML вместо JSON:
+   → API возвращает ошибку 500
+   → Смотрите Vercel Functions Logs
+
+═══════════════════════════════════════════════════════
+🚀 БЫСТРОЕ РЕШЕНИЕ
+═══════════════════════════════════════════════════════
+
+Если Vercel не подхватывает изменения:
+
+1. В Vercel Dashboard:
+   - Deployments → три точки → Redeploy
+   - Снимите галку "Use existing Build Cache"
+   - Redeploy
+
+2. Или пустой коммит:
+   git commit --allow-empty -m "chore: trigger redeploy"
+   git push origin master
+
+═══════════════════════════════════════════════════════
+🔍 ЧТО ПОКАЗАТЬ МНЕ ДЛЯ ОТЛАДКИ
+═══════════════════════════════════════════════════════
+
+1. Screenshot ошибки в браузере (F12 → Console)
+2. Screenshot ошибки в Network tab (что возвращает /api/balance)
+3. Vercel Build Logs (копируйте текст)
+4. Vercel Runtime Logs функции api/index
+
+Тогда я смогу точно найти проблему! 🎯
