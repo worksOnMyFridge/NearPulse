@@ -50,3 +50,6 @@ output.txt
 .vercel
 
 archive/
+# Python
+__pycache__/
+*.pyc
