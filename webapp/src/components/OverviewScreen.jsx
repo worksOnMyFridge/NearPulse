@@ -144,6 +144,11 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
   const [data,             setData]             = useState(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [showHidden,       setShowHidden]       = useState(false);
+  const [manuallyHidden,   setManuallyHidden]   = useState(() => {
+    try { return JSON.parse(localStorage.getItem('nearpulse_hidden_tokens') || '[]'); }
+    catch { return []; }
+  });
+  const [contextMenu,      setContextMenu]      = useState(null); // { contract, x, y }
 
   const displayAddress = address || 'root.near';
 
@@ -196,6 +201,10 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
     return () => clearInterval(interval);
   }, [claimStatus]);
 
+  useEffect(() => {
+    localStorage.setItem('nearpulse_hidden_tokens', JSON.stringify(manuallyHidden));
+  }, [manuallyHidden]);
+
   const canClaim    = claimStatus?.readyToClaim || claimStatus?.canClaim || false;
   const maxActivity = data?.activityByDay ? Math.max(...data.activityByDay.map(d => d.txs), 1) : 1;
 
@@ -222,6 +231,49 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
   return (
     <div className="space-y-4">
 
+      {/* Context menu overlay — long press / right-click on token row */}
+      {contextMenu && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 1000 }}
+          onClick={() => setContextMenu(null)}
+        >
+          <div
+            style={{
+              position: 'fixed',
+              left: Math.min(contextMenu.x, (typeof window !== 'undefined' ? window.innerWidth : 400) - 170),
+              top:  Math.min(contextMenu.y, (typeof window !== 'undefined' ? window.innerHeight : 800) - 110),
+              background: 'var(--bg-card)',
+              border: '1px solid var(--border-primary)',
+              borderRadius: 12,
+              padding: 4,
+              zIndex: 1001,
+              boxShadow: 'var(--card-shadow)',
+              minWidth: 160,
+              backdropFilter: 'blur(20px)',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            {[
+              { label: '🙈 Скрыть токен', action: () => setManuallyHidden(prev => [...new Set([...prev, contextMenu.contract])]) },
+              { label: '✅ Показать',     action: () => setManuallyHidden(prev => prev.filter(c => c !== contextMenu.contract)) },
+            ].map(({ label, action }) => (
+              <button
+                key={label}
+                onClick={() => { action(); setContextMenu(null); }}
+                style={{
+                  display: 'block', width: '100%', padding: '10px 14px',
+                  border: 'none', background: 'none', color: 'var(--text-primary)',
+                  fontSize: 13, fontWeight: 500, cursor: 'pointer',
+                  textAlign: 'left', borderRadius: 8, fontFamily: 'inherit',
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Карточка портфеля */}
       {balanceData && (
         <div style={{
@@ -243,20 +295,33 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
               </div>
               <Info size={16} style={{ opacity: 0.5 }} />
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-              <div>
-                <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>NEAR</div>
-                <div style={{ fontSize: 28, fontWeight: 300, letterSpacing: -1 }}>{nearTotal.toFixed(2)}</div>
-                {nearUsd > 0 && <div style={{ fontSize: 12, opacity: 0.7 }}>${nearUsd.toFixed(2)}</div>}
-              </div>
-              <div>
-                <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>HOT</div>
-                <div style={{ fontSize: 28, fontWeight: 300, letterSpacing: -1 }}>
-                  {hotAmount.toLocaleString('ru-RU', { maximumFractionDigits: 0 })}
+            {(() => {
+              const totalUSD = balanceData?.totalUSD || 0;
+              const fmtTotal = totalUSD >= 1000
+                ? `$${totalUSD.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                : `$${totalUSD.toFixed(2)}`;
+              return (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                  <div>
+                    <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>NEAR</div>
+                    <div style={{ fontSize: 24, fontWeight: 300, letterSpacing: -1 }}>{nearTotal.toFixed(2)}</div>
+                    {nearUsd > 0 && <div style={{ fontSize: 12, opacity: 0.7 }}>${nearUsd.toFixed(2)}</div>}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>HOT</div>
+                    <div style={{ fontSize: 24, fontWeight: 300, letterSpacing: -1 }}>
+                      {hotAmount.toLocaleString('ru-RU', { maximumFractionDigits: 0 })}
+                    </div>
+                    <div style={{ fontSize: 12, opacity: 0.7 }}>токенов</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>Всего</div>
+                    <div style={{ fontSize: 24, fontWeight: 300, letterSpacing: -1 }}>{fmtTotal}</div>
+                    <div style={{ fontSize: 12, opacity: 0.7 }}>USD</div>
+                  </div>
                 </div>
-                <div style={{ fontSize: 12, opacity: 0.7 }}>токенов</div>
-              </div>
-            </div>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -320,89 +385,126 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
 
       {/* Токены портфеля */}
       {balanceData?.tokens && (() => {
-        const major    = balanceData.tokens.major    || [];
-        const filtered = balanceData.tokens.filtered || [];
-        const hidden   = balanceData.tokens.hidden   || [];
-        const allVisible = [...major, ...filtered];
-        if (allVisible.length === 0 && hidden.length === 0) return null;
+        const major     = balanceData.tokens.major    || [];
+        const filtered  = balanceData.tokens.filtered || [];
+        const apiHidden = balanceData.tokens.hidden   || [];
 
-        const TokenRow = ({ token, dimmed }) => (
+        const hiddenSet      = new Set(manuallyHidden);
+        const allApiVisible  = [...major, ...filtered];
+        const visible        = allApiVisible.filter(t => !hiddenSet.has(t.contract));
+        const manualInHidden = allApiVisible.filter(t =>  hiddenSet.has(t.contract));
+        const hidden         = [...apiHidden, ...manualInHidden];
+
+        if (visible.length === 0 && hidden.length === 0) return null;
+
+        // Long-press: closure timer (no hooks — TokenRow is re-created each render)
+        let pressTimer = null;
+        const startPress = (contract, clientX, clientY) => {
+          pressTimer = setTimeout(
+            () => setContextMenu({ contract, x: clientX, y: clientY }),
+            600,
+          );
+        };
+        const cancelPress = () => { if (pressTimer) clearTimeout(pressTimer); };
+
+        const hideToken   = c => setManuallyHidden(prev => [...new Set([...prev, c])]);
+        const unhideToken = c => setManuallyHidden(prev => prev.filter(x => x !== c));
+
+        const Avatar = ({ token }) => token.icon && token.icon.startsWith('data:') ? (
+          <img src={token.icon} alt={token.symbol}
+            style={{ width: 32, height: 32, borderRadius: '50%', flexShrink: 0 }} />
+        ) : (
           <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            padding: '10px 14px',
-            background: 'var(--bg-card)',
-            border: '1px solid var(--border-primary)',
-            borderRadius: 12,
-            opacity: dimmed ? 0.5 : 1,
+            width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+            background: 'var(--accent-subtle)', border: '1px solid var(--border-primary)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 11, fontWeight: 700, color: 'var(--text-accent)',
           }}>
-            {token.icon && token.icon.startsWith('data:') ? (
-              <img src={token.icon} alt={token.symbol} style={{ width: 32, height: 32, borderRadius: '50%', flexShrink: 0 }} />
-            ) : (
-              <div style={{
-                width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
-                background: 'var(--accent-subtle)',
-                border: '1px solid var(--border-primary)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 11, fontWeight: 700, color: 'var(--text-accent)',
-              }}>
-                {(token.symbol || '?').slice(0, 2).toUpperCase()}
-              </div>
-            )}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {token.symbol}
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {dimmed ? '⚠️ Возможный скам' : token.name}
-              </div>
-            </div>
-            <div style={{ textAlign: 'right', flexShrink: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
-                {token.usdValue > 0 ? `$${token.usdValue.toFixed(2)}` : '—'}
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
-                {Number(token.amount).toLocaleString('en-US', { maximumFractionDigits: 2 })}
-              </div>
-            </div>
+            {(token.symbol || '?').slice(0, 2).toUpperCase()}
           </div>
         );
+
+        const TokenRow = ({ token, dimmed }) => {
+          const isManualHide = hiddenSet.has(token.contract);
+          return (
+            <div
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '10px 14px',
+                background: 'var(--bg-card)',
+                border: '1px solid var(--border-primary)',
+                borderRadius: 12,
+                opacity: dimmed ? 0.5 : 1,
+                userSelect: 'none',
+              }}
+              onContextMenu={e => { e.preventDefault(); setContextMenu({ contract: token.contract, x: e.clientX, y: e.clientY }); }}
+              onTouchStart={e => startPress(token.contract, e.touches[0].clientX, e.touches[0].clientY)}
+              onTouchEnd={cancelPress}
+              onTouchMove={cancelPress}
+            >
+              <Avatar token={token} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {token.symbol}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {dimmed ? (isManualHide ? '👤 Скрыт вами' : '⚠️ Возможный скам') : token.name}
+                </div>
+              </div>
+              <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+                  {token.usdValue > 0 ? `$${token.usdValue.toFixed(2)}` : '—'}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+                  {Number(token.amount).toLocaleString('en-US', { maximumFractionDigits: 2 })}
+                </div>
+              </div>
+              {/* Action button */}
+              {dimmed ? (
+                isManualHide && (
+                  <button
+                    onClick={e => { e.stopPropagation(); unhideToken(token.contract); }}
+                    title="Показать токен"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: 'var(--text-tertiary)', padding: '0 0 0 6px', flexShrink: 0 }}
+                  >👁</button>
+                )
+              ) : (
+                <button
+                  onClick={e => { e.stopPropagation(); hideToken(token.contract); }}
+                  title="Скрыть токен"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, lineHeight: 1, color: 'var(--text-tertiary)', padding: '0 0 0 6px', flexShrink: 0, opacity: 0.5 }}
+                >×</button>
+              )}
+            </div>
+          );
+        };
 
         return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)', padding: '2px 2px' }}>
               Токены
               <span style={{ fontWeight: 400, fontSize: 12, color: 'var(--text-tertiary)', marginLeft: 6 }}>
-                {allVisible.length}
+                {visible.length}
               </span>
             </div>
 
-            {allVisible.map((t, i) => <TokenRow key={`${t.contract}-${i}`} token={t} dimmed={false} />)}
+            {visible.map((t, i) => <TokenRow key={`${t.contract}-${i}`} token={t} dimmed={false} />)}
 
             {hidden.length > 0 && (
               <>
                 <button
                   onClick={() => setShowHidden(v => !v)}
                   style={{
-                    width: '100%',
-                    padding: '10px 14px',
-                    borderRadius: 12,
-                    border: '1px solid var(--border-primary)',
-                    background: 'var(--bg-card)',
-                    color: 'var(--text-tertiary)',
-                    fontSize: 13,
-                    fontWeight: 500,
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    fontFamily: 'inherit',
+                    width: '100%', padding: '10px 14px', borderRadius: 12,
+                    border: '1px solid var(--border-primary)', background: 'var(--bg-card)',
+                    color: 'var(--text-tertiary)', fontSize: 13, fontWeight: 500,
+                    cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
                   }}
                 >
                   {showHidden
                     ? `🙈 Скрыть скам (${hidden.length})`
                     : `👁 Показать скрытые (${hidden.length})`}
                 </button>
-
                 {showHidden && hidden.map((t, i) => (
                   <TokenRow key={`hidden-${t.contract}-${i}`} token={t} dimmed={true} />
                 ))}

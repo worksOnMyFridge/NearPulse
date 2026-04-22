@@ -953,7 +953,14 @@ def api_balance(account_id):
             "hot": round(hot, 2),
             "hotClaim": hot_claim,
             "nearPrice": near_price,
-            "totalUSD": round((balance["near"] + staking) * near_price, 2) if near_price else 0,
+            "totalUSD": round(
+                (balance["near"] + staking) * near_price
+                + sum(t.get("usdValue", 0) for t in tokens.get("major", []) + tokens.get("filtered", [])),
+                2,
+            ) if near_price else round(
+                sum(t.get("usdValue", 0) for t in tokens.get("major", []) + tokens.get("filtered", [])),
+                2,
+            ),
             "tokens": tokens,
         }
         set_cache(cache_key, result)
