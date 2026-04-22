@@ -143,6 +143,7 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
   const [timeRemaining,    setTimeRemaining]    = useState('');
   const [data,             setData]             = useState(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [showHidden,       setShowHidden]       = useState(false);
 
   const displayAddress = address || 'root.near';
 
@@ -316,6 +317,100 @@ export default function OverviewScreen({ selectedPeriod, onPeriodChange, balance
           </div>
         ))}
       </div>
+
+      {/* Токены портфеля */}
+      {balanceData?.tokens && (() => {
+        const major    = balanceData.tokens.major    || [];
+        const filtered = balanceData.tokens.filtered || [];
+        const hidden   = balanceData.tokens.hidden   || [];
+        const allVisible = [...major, ...filtered];
+        if (allVisible.length === 0 && hidden.length === 0) return null;
+
+        const TokenRow = ({ token, dimmed }) => (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '10px 14px',
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border-primary)',
+            borderRadius: 12,
+            opacity: dimmed ? 0.5 : 1,
+          }}>
+            {token.icon && token.icon.startsWith('data:') ? (
+              <img src={token.icon} alt={token.symbol} style={{ width: 32, height: 32, borderRadius: '50%', flexShrink: 0 }} />
+            ) : (
+              <div style={{
+                width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+                background: 'var(--accent-subtle)',
+                border: '1px solid var(--border-primary)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 11, fontWeight: 700, color: 'var(--text-accent)',
+              }}>
+                {(token.symbol || '?').slice(0, 2).toUpperCase()}
+              </div>
+            )}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {token.symbol}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {dimmed ? '⚠️ Возможный скам' : token.name}
+              </div>
+            </div>
+            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+                {token.usdValue > 0 ? `$${token.usdValue.toFixed(2)}` : '—'}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+                {Number(token.amount).toLocaleString('en-US', { maximumFractionDigits: 2 })}
+              </div>
+            </div>
+          </div>
+        );
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)', padding: '2px 2px' }}>
+              Токены
+              <span style={{ fontWeight: 400, fontSize: 12, color: 'var(--text-tertiary)', marginLeft: 6 }}>
+                {allVisible.length}
+              </span>
+            </div>
+
+            {allVisible.map((t, i) => <TokenRow key={`${t.contract}-${i}`} token={t} dimmed={false} />)}
+
+            {hidden.length > 0 && (
+              <>
+                <button
+                  onClick={() => setShowHidden(v => !v)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 14px',
+                    borderRadius: 12,
+                    border: '1px solid var(--border-primary)',
+                    background: 'var(--bg-card)',
+                    color: 'var(--text-tertiary)',
+                    fontSize: 13,
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  {showHidden
+                    ? `🙈 Скрыть скам (${hidden.length})`
+                    : `👁 Показать скрытые (${hidden.length})`}
+                </button>
+
+                {showHidden && hidden.map((t, i) => (
+                  <TokenRow key={`hidden-${t.contract}-${i}`} token={t} dimmed={true} />
+                ))}
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Статистика */}
       {!analyticsLoading && data && (

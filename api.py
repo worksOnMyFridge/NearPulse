@@ -81,6 +81,7 @@ TOKEN_DECIMALS_MAP = {
     "token.lonkingnearbackto2024.near": 18,
     "dd.tg": 18,
     "benthedog.near": 18,
+    "meme-cooking.near": 18,
 }
 
 TOKEN_COINGECKO_MAP = {
@@ -328,8 +329,12 @@ def get_all_tokens(address):
             normalized = raw_amount / (10 ** decimals) if decimals > 0 else raw_amount
             symbol = t.get("symbol") or (t.get("ft_meta") or {}).get("symbol")
             if not symbol:
-                parts = contract.split(".")
-                symbol = parts[0][:10].upper() if len(parts[0]) > 15 else parts[0].upper()
+                if "meme-cooking.near" in contract:
+                    # e.g. "jambo-1679.meme-cooking.near" → "JAMBO"
+                    symbol = contract.split("-")[0].upper()
+                else:
+                    parts = contract.split(".")
+                    symbol = parts[0][:10].upper() if len(parts[0]) > 15 else parts[0].upper()
             nb_price = t.get("price") or (t.get("ft_meta") or {}).get("price") or 0
             result.append({
                 "name": t.get("name") or (t.get("ft_meta") or {}).get("name") or symbol,
@@ -416,7 +421,7 @@ def get_intear_prices(contracts):
         return {}
 
 
-def get_tokens_with_prices(address, min_usd=1):
+def get_tokens_with_prices(address, min_usd=0.01):
     tokens = get_all_tokens(address)
     tokens = [t for t in tokens if t["contract"].lower() != "game.hot.tg"]
     if not tokens:
@@ -443,12 +448,12 @@ def get_tokens_with_prices(address, min_usd=1):
         results.append({**t, "price": price, "usdValue": usd_value, "isMajor": is_major})
 
     major = sorted(
-        [t for t in results if t["isMajor"] and t["price"] > 0 and t["usdValue"] >= 1],
+        [t for t in results if t["isMajor"] and t["price"] > 0 and t["usdValue"] >= min_usd],
         key=lambda x: -x["usdValue"],
     )
     others = [t for t in results if not t["isMajor"]]
     filtered = sorted(
-        [t for t in others if (t["price"] > 0 and t["usdValue"] >= min_usd) or (t["price"] == 0 and 15000 <= t["amount"] <= 500000)],
+        [t for t in others if t["usdValue"] >= min_usd or (t["price"] == 0 and t["amount"] > 1000)],
         key=lambda x: (-x["usdValue"] if x["price"] > 0 else -x["amount"]),
     )
     hidden = [t for t in others if t not in filtered]
