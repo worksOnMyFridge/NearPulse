@@ -11,6 +11,7 @@ const TABS = [
   { key: 'overview',      label: 'Обзор',       icon: '⊙' },
   { key: 'transactions',  label: 'Транзакции',   icon: '↕' },
   { key: 'analytics',     label: 'Аналитика',    icon: '📊' },
+  { key: 'market',        label: 'Рынок',        icon: '📈' },
   { key: 'gallery',       label: 'NFT',          icon: '🖼' },
 ];
 

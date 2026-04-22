@@ -6,6 +6,7 @@ import OverviewScreen from './components/OverviewScreen';
 import TransactionsScreen from './components/TransactionsScreen';
 import AnalyticsScreen from './components/AnalyticsScreen';
 import GalleryScreenStable from './components/GalleryScreenStable';
+import MarketScreen from './components/MarketScreen';
 import LoadingSpinner from './components/LoadingSpinner';
 import AiChatWidget from './components/AiChatWidget';
 import { useTheme } from './hooks/useTheme';
@@ -91,6 +92,7 @@ export default function App() {
             balanceData={balanceData}
           />
         )}
+        {currentScreen === 'market' && <MarketScreen />}
         {currentScreen === 'gallery' && <GalleryScreenStable />}
       </div>
 
