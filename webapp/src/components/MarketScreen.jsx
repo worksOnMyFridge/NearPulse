@@ -5,9 +5,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 
-const BASE_URL = 'https://api.dexscreener.com/tokens/v1/near';
+const BASE_URL        = 'https://api.dexscreener.com/tokens/v1/near';
+const SEARCH_URL      = 'https://api.dexscreener.com/latest/dex/search?q=near';
+const PROFILES_URL    = 'https://api.dexscreener.com/token-profiles/latest/v1';
+const REFRESH_MS      = 60_000;
+const MIN_VOL         = 1000;
 
-// First address = NEAR price card; the rest = ecosystem list
+// First address → NEAR price card; rest → ecosystem list
 const TOKEN_ADDRESSES = [
   'wrap.near',
   'token.v2.ref-finance.near',
@@ -17,8 +21,6 @@ const TOKEN_ADDRESSES = [
   'blackdragon.tkn.near',
   'token.0xshitzu.near',
 ];
-
-const REFRESH_MS = 60_000;
 
 // ─── Formatters ────────────────────────────────────────────────────────────
 
@@ -47,7 +49,12 @@ function fmtChange(v) {
   return { text: `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`, positive: n >= 0 };
 }
 
-// Build 4-point chart data from priceChange percentages
+function shortAddr(addr) {
+  if (!addr || addr.length <= 16) return addr || '—';
+  return `${addr.slice(0, 8)}…${addr.slice(-6)}`;
+}
+
+// Build 4-point sparkline from priceChange percentages
 function makePriceChart(pair) {
   if (!pair?.priceUsd) return null;
   const price = Number(pair.priceUsd);
@@ -61,6 +68,20 @@ function makePriceChart(pair) {
     { t: '1ч',     v: price * (1 - h1  / 100) },
     { t: 'Сейчас', v: price },
   ];
+}
+
+// Deduplicate an array of pairs by baseToken.symbol, keeping highest volume
+function dedupBySymbol(pairs) {
+  const map = new Map();
+  for (const p of pairs) {
+    const sym = p.baseToken?.symbol;
+    if (!sym) continue;
+    const existing = map.get(sym);
+    if (!existing || (p.volume?.h24 || 0) > (existing.volume?.h24 || 0)) {
+      map.set(sym, p);
+    }
+  }
+  return [...map.values()];
 }
 
 // ─── Sub-components ────────────────────────────────────────────────────────
@@ -90,7 +111,7 @@ function StatCell({ label, value }) {
   );
 }
 
-function SkeletonBlock({ width = '100%', height = 16, radius = 6, style = {} }) {
+function Skeleton({ width = '100%', height = 16, radius = 6, style = {} }) {
   return (
     <div className="shimmer" style={{
       width, height, borderRadius: radius,
@@ -99,41 +120,86 @@ function SkeletonBlock({ width = '100%', height = 16, radius = 6, style = {} }) 
   );
 }
 
+function SectionTitle({ children }) {
+  return (
+    <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)', padding: '6px 2px 2px' }}>
+      {children}
+    </div>
+  );
+}
+
+function Card({ children, style = {} }) {
+  return (
+    <div style={{
+      background: 'var(--bg-card)',
+      border: '1px solid var(--border-primary)',
+      borderRadius: 16,
+      backdropFilter: 'blur(20px)',
+      ...style,
+    }}>
+      {children}
+    </div>
+  );
+}
+
+// ─── Loading skeleton ───────────────────────────────────────────────────────
+
 function LoadingSkeleton() {
-  const card = { background: 'var(--bg-card)', border: '1px solid var(--border-primary)', borderRadius: 16, padding: 16 };
-  const row  = { display: 'flex', alignItems: 'center', gap: 12 };
+  const row = { display: 'flex', alignItems: 'center', gap: 12 };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ ...card, display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* NEAR card skeleton */}
+      <Card style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div style={row}>
-          <SkeletonBlock width={40} height={40} radius={20} />
+          <Skeleton width={40} height={40} radius={20} />
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <SkeletonBlock width="55%" height={16} />
-            <SkeletonBlock width="35%" height={11} />
+            <Skeleton width="55%" height={16} />
+            <Skeleton width="35%" height={11} />
           </div>
         </div>
-        <SkeletonBlock width="45%" height={36} />
-        <SkeletonBlock width="100%" height={80} radius={8} />
+        <Skeleton width="45%" height={36} />
+        <Skeleton width="100%" height={80} radius={8} />
         <div style={{ display: 'flex', gap: 8 }}>
-          {[1, 2, 3, 4].map(i => <SkeletonBlock key={i} height={38} style={{ flex: 1 }} />)}
+          {[1,2,3,4].map(i => <Skeleton key={i} height={38} style={{ flex: 1 }} />)}
         </div>
         <div style={{ display: 'flex', gap: 12 }}>
-          {[1, 2, 3].map(i => <SkeletonBlock key={i} height={34} style={{ flex: 1 }} />)}
+          {[1,2,3].map(i => <Skeleton key={i} height={34} style={{ flex: 1 }} />)}
         </div>
-      </div>
-      {[1, 2, 3, 4, 5, 6].map(i => (
-        <div key={i} style={{ ...card, borderRadius: 12, padding: '12px 14px', ...row }}>
-          <SkeletonBlock width={36} height={36} radius={18} />
+      </Card>
+      {/* Token list skeletons */}
+      {[1,2,3,4,5,6].map(i => (
+        <div key={i} style={{ ...{ background: 'var(--bg-card)', border: '1px solid var(--border-primary)', borderRadius: 12, padding: '12px 14px' }, ...row }}>
+          <Skeleton width={36} height={36} radius={18} />
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <SkeletonBlock width="40%" height={14} />
-            <SkeletonBlock width="60%" height={11} />
+            <Skeleton width="40%" height={14} />
+            <Skeleton width="60%" height={11} />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
-            <SkeletonBlock width={60} height={14} />
-            <SkeletonBlock width={44} height={12} />
+            <Skeleton width={60} height={14} />
+            <Skeleton width={44} height={12} />
           </div>
         </div>
       ))}
+      {/* Gainers/losers skeleton */}
+      <Skeleton width="40%" height={18} />
+      <Card style={{ padding: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          {[1,2,3,4,5,6,7,8,9,10].map(i => <Skeleton key={i} height={36} radius={8} />)}
+        </div>
+      </Card>
+      {/* Top pairs skeleton */}
+      <Skeleton width="40%" height={18} />
+      <Card>
+        {[1,2,3,4].map((i, idx) => (
+          <div key={i} style={{ padding: '12px 16px', borderTop: idx > 0 ? '1px solid var(--border-primary)' : 'none', ...row }}>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <Skeleton width="50%" height={14} />
+              <Skeleton width="35%" height={11} />
+            </div>
+            <Skeleton width={60} height={14} />
+          </div>
+        ))}
+      </Card>
     </div>
   );
 }
@@ -141,12 +207,14 @@ function LoadingSkeleton() {
 // ─── Main component ────────────────────────────────────────────────────────
 
 export default function MarketScreen() {
-  const [nearPair,     setNearPair]     = useState(null);
-  const [tokens,       setTokens]       = useState([]);
-  const [loading,      setLoading]      = useState(true);
-  const [error,        setError]        = useState(null);
-  const [lastUpdated,  setLastUpdated]  = useState(null);
-  const [expanded,     setExpanded]     = useState(new Set());
+  const [nearPair,    setNearPair]    = useState(null);
+  const [tokens,      setTokens]      = useState([]);
+  const [marketData,  setMarketData]  = useState(null);  // { gainers, losers, topPairs }
+  const [newListings, setNewListings] = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState(null);
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [expanded,    setExpanded]    = useState(new Set());
 
   const toggleExpand = (key) => {
     setExpanded(prev => {
@@ -160,23 +228,55 @@ export default function MarketScreen() {
     if (showLoader) setLoading(true);
     setError(null);
     try {
-      const responses = await Promise.all(
-        TOKEN_ADDRESSES.map(addr =>
-          fetch(`${BASE_URL}/${addr}`)
-            .then(r => r.ok ? r.json() : [])
-            .catch(() => [])
-        )
-      );
+      // Fetch all sources simultaneously
+      const [tokenResponses, searchRes, profilesRes] = await Promise.all([
+        Promise.all(
+          TOKEN_ADDRESSES.map(addr =>
+            fetch(`${BASE_URL}/${addr}`)
+              .then(r => r.ok ? r.json() : [])
+              .catch(() => [])
+          )
+        ),
+        fetch(SEARCH_URL).then(r => r.ok ? r.json() : {}).catch(() => ({})),
+        fetch(PROFILES_URL).then(r => r.ok ? r.json() : []).catch(() => []),
+      ]);
 
-      // Each response is an array of pairs — pick highest-volume pair per token
-      const bestPairs = responses.map(data => {
+      // ── Known ecosystem tokens ────────────────────────────────────────────
+      const bestPairs = tokenResponses.map(data => {
         const arr = Array.isArray(data) ? data : (data.pairs || []);
         return [...arr].sort((a, b) => (b.volume?.h24 || 0) - (a.volume?.h24 || 0))[0] || null;
       });
-
       const [near, ...rest] = bestPairs;
       setNearPair(near || null);
       setTokens(rest.filter(Boolean));
+
+      // ── Market data from search ───────────────────────────────────────────
+      const allPairs = (searchRes.pairs || []).filter(
+        p => p.chainId === 'near' && p.priceUsd && (p.volume?.h24 || 0) > MIN_VOL
+      );
+      const deduped = dedupBySymbol(allPairs);
+
+      const sorted  = [...deduped].sort((a, b) =>
+        (b.priceChange?.h24 || 0) - (a.priceChange?.h24 || 0)
+      );
+      const gainers = sorted.filter(p => (p.priceChange?.h24 || 0) > 0).slice(0, 5);
+      const losers  = [...sorted].reverse().filter(p => (p.priceChange?.h24 || 0) < 0).slice(0, 5);
+      const topPairs = [...deduped]
+        .sort((a, b) => (b.volume?.h24 || 0) - (a.volume?.h24 || 0))
+        .slice(0, 8);
+
+      setMarketData(gainers.length || losers.length || topPairs.length
+        ? { gainers, losers, topPairs }
+        : null
+      );
+
+      // ── New listings ──────────────────────────────────────────────────────
+      const profiles = Array.isArray(profilesRes) ? profilesRes : [];
+      const nearNew  = profiles
+        .filter(p => p.chainId === 'near')
+        .slice(0, 5);
+      setNewListings(nearNew);
+
       setLastUpdated(new Date());
     } catch (e) {
       setError(e.message);
@@ -191,23 +291,22 @@ export default function MarketScreen() {
     return () => clearInterval(id);
   }, [fetchData]);
 
-  // ── Loading ───────────────────────────────────────────────────────────────
   if (loading) return <LoadingSkeleton />;
 
-  // ── Error ─────────────────────────────────────────────────────────────────
   if (error) return (
-    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-primary)', borderRadius: 16, padding: 32, textAlign: 'center' }}>
+    <Card style={{ padding: 32, textAlign: 'center' }}>
       <div style={{ fontSize: 36, marginBottom: 10 }}>⚠️</div>
       <div style={{ fontWeight: 600, fontSize: 16, color: 'var(--text-primary)', marginBottom: 6 }}>Ошибка загрузки</div>
       <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20 }}>{error}</div>
       <button onClick={() => fetchData(true)} style={{
-        padding: '9px 24px', borderRadius: 10, border: '1px solid var(--border-primary)',
+        padding: '9px 24px', borderRadius: 10,
+        border: '1px solid var(--border-primary)',
         background: 'var(--accent-subtle)', color: 'var(--text-accent)',
         fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
       }}>
         Повторить
       </button>
-    </div>
+    </Card>
   );
 
   const chartData  = nearPair ? makePriceChart(nearPair) : null;
@@ -215,15 +314,13 @@ export default function MarketScreen() {
     ? 'var(--color-positive)'
     : 'var(--color-negative)';
 
-  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
       {/* ── NEAR price card ─────────────────────────────────────────────── */}
       {nearPair ? (
-        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-primary)', borderRadius: 16, padding: 16, backdropFilter: 'blur(20px)' }}>
-
-          {/* Header row */}
+        <Card style={{ padding: 16 }}>
+          {/* Header */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
             <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'var(--accent-gradient)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, color: '#fff', flexShrink: 0 }}>◎</div>
             <div style={{ flex: 1 }}>
@@ -253,15 +350,8 @@ export default function MarketScreen() {
                       <stop offset="95%" stopColor={chartColor} stopOpacity={0.02} />
                     </linearGradient>
                   </defs>
-                  <Area
-                    type="monotone"
-                    dataKey="v"
-                    stroke={chartColor}
-                    strokeWidth={2}
-                    fill="url(#nearMiniGrad)"
-                    dot={false}
-                    isAnimationActive={false}
-                  />
+                  <Area type="monotone" dataKey="v" stroke={chartColor} strokeWidth={2}
+                    fill="url(#nearMiniGrad)" dot={false} isAnimationActive={false} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -281,26 +371,20 @@ export default function MarketScreen() {
             <StatCell label="Ликвидность" value={fmtUsd(nearPair.liquidity?.usd)} />
             <StatCell label="FDV"         value={fmtUsd(nearPair.fdv)} />
           </div>
-        </div>
+        </Card>
       ) : (
-        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-primary)', borderRadius: 16, padding: 16, color: 'var(--text-secondary)', fontSize: 14, textAlign: 'center' }}>
+        <Card style={{ padding: 16, color: 'var(--text-secondary)', fontSize: 14, textAlign: 'center' }}>
           Нет данных по NEAR
-        </div>
+        </Card>
       )}
 
-      {/* ── Ecosystem tokens ─────────────────────────────────────────────── */}
-      <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)', padding: '6px 2px 2px' }}>
+      {/* ── Ecosystem token list ─────────────────────────────────────────── */}
+      <SectionTitle>
         Экосистема NEAR
         <span style={{ fontWeight: 400, fontSize: 12, color: 'var(--text-tertiary)', marginLeft: 6 }}>
           {tokens.length} токенов
         </span>
-      </div>
-
-      {tokens.length === 0 && (
-        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-primary)', borderRadius: 12, padding: 24, textAlign: 'center', color: 'var(--text-secondary)', fontSize: 14 }}>
-          Нет данных о токенах
-        </div>
-      )}
+      </SectionTitle>
 
       {tokens.map((pair, idx) => {
         const key    = pair.pairAddress || pair.baseToken?.address || String(idx);
@@ -311,23 +395,17 @@ export default function MarketScreen() {
         const initials = (pair.baseToken?.symbol || '?').slice(0, 2).toUpperCase();
 
         return (
-          <div
-            key={`${key}-${idx}`}
+          <div key={`${key}-${idx}`}
             style={{ background: 'var(--bg-card)', border: '1px solid var(--border-primary)', borderRadius: 12, overflow: 'hidden', backdropFilter: 'blur(10px)', cursor: 'pointer' }}
             onClick={() => toggleExpand(key)}
           >
-            {/* ── Main row ── */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px' }}>
               <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--accent-subtle)', border: '1px solid var(--border-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: 'var(--text-accent)', flexShrink: 0 }}>
                 {initials}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {pair.baseToken?.symbol || '—'}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {pair.baseToken?.name || pair.dexId || '—'}
-                </div>
+                <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pair.baseToken?.symbol || '—'}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pair.baseToken?.name || pair.dexId || '—'}</div>
               </div>
               <div style={{ textAlign: 'right', flexShrink: 0 }}>
                 <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginBottom: 2 }}>Vol 24h</div>
@@ -340,7 +418,6 @@ export default function MarketScreen() {
               <span style={{ fontSize: 9, color: 'var(--text-tertiary)', flexShrink: 0 }}>{isExp ? '▲' : '▼'}</span>
             </div>
 
-            {/* ── Expanded details ── */}
             {isExp && (
               <div style={{ padding: '12px 14px', borderTop: '1px solid var(--border-primary)', display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div style={{ display: 'flex', gap: 4 }}>
@@ -359,6 +436,148 @@ export default function MarketScreen() {
           </div>
         );
       })}
+
+      {/* ── SECTION 1: Top Gainers / Losers ─────────────────────────────── */}
+      {marketData && (marketData.gainers.length > 0 || marketData.losers.length > 0) && (() => {
+        const GainerRow = ({ pair }) => {
+          const { text, positive } = fmtChange(pair.priceChange?.h24);
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 0' }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {pair.baseToken?.symbol || '—'}
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>{fmtPrice(pair.priceUsd)}</div>
+              </div>
+              <div style={{ fontWeight: 700, fontSize: 13, color: positive ? 'var(--color-positive)' : 'var(--color-negative)', flexShrink: 0, marginLeft: 8 }}>
+                {text}
+              </div>
+            </div>
+          );
+        };
+
+        return (
+          <>
+            <SectionTitle>Топ роста и падения за 24ч</SectionTitle>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              {/* Gainers */}
+              <Card style={{ padding: '12px 14px' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-positive)', marginBottom: 8 }}>🚀 Растут</div>
+                <div style={{ display: 'flex', flexDirection: 'column', divideY: '1px solid var(--border-primary)' }}>
+                  {marketData.gainers.map((p, i) => (
+                    <div key={i} style={{ borderTop: i > 0 ? '1px solid var(--border-primary)' : 'none' }}>
+                      <GainerRow pair={p} />
+                    </div>
+                  ))}
+                </div>
+              </Card>
+
+              {/* Losers */}
+              <Card style={{ padding: '12px 14px' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-negative)', marginBottom: 8 }}>📉 Падают</div>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  {marketData.losers.map((p, i) => (
+                    <div key={i} style={{ borderTop: i > 0 ? '1px solid var(--border-primary)' : 'none' }}>
+                      <GainerRow pair={p} />
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            </div>
+          </>
+        );
+      })()}
+
+      {/* ── SECTION 2: Top Pairs by Volume ──────────────────────────────── */}
+      {marketData?.topPairs?.length > 0 && (() => {
+        return (
+          <>
+            <SectionTitle>Топ пары по объёму</SectionTitle>
+            <Card>
+              {marketData.topPairs.map((pair, idx) => {
+                const quoteSymbol = pair.quoteToken?.symbol || 'USDT';
+                const baseSymbol  = pair.baseToken?.symbol  || '—';
+                const { text: chgText, positive } = fmtChange(pair.priceChange?.h24);
+                return (
+                  <div key={idx} style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '12px 16px',
+                    borderTop: idx > 0 ? '1px solid var(--border-primary)' : 'none',
+                  }}>
+                    {/* Pair label */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {baseSymbol} → {quoteSymbol}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>
+                        Ликв. {fmtUsd(pair.liquidity?.usd)}
+                      </div>
+                    </div>
+                    {/* Volume */}
+                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{fmtUsd(pair.volume?.h24)}</div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: positive === null ? 'var(--text-secondary)' : positive ? 'var(--color-positive)' : 'var(--color-negative)' }}>
+                        {chgText}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </Card>
+          </>
+        );
+      })()}
+
+      {/* ── SECTION 3: New Listings ──────────────────────────────────────── */}
+      {newListings.length > 0 && (() => {
+        return (
+          <>
+            <SectionTitle>🆕 Новые листинги</SectionTitle>
+            <Card>
+              {newListings.map((profile, idx) => (
+                <div key={idx} style={{
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  padding: '12px 16px',
+                  borderTop: idx > 0 ? '1px solid var(--border-primary)' : 'none',
+                }}>
+                  {/* Icon */}
+                  {profile.icon ? (
+                    <img
+                      src={profile.icon}
+                      alt={profile.tokenAddress}
+                      style={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0, objectFit: 'cover' }}
+                      onError={e => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling.style.display = 'flex'; }}
+                    />
+                  ) : null}
+                  <div style={{
+                    width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
+                    background: 'var(--accent-subtle)', border: '1px solid var(--border-primary)',
+                    display: profile.icon ? 'none' : 'flex',
+                    alignItems: 'center', justifyContent: 'center', fontSize: 18,
+                  }}>
+                    🪙
+                  </div>
+                  {/* Info */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {profile.name || shortAddr(profile.tokenAddress)}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)', marginTop: 1 }}>
+                      {shortAddr(profile.tokenAddress)}
+                    </div>
+                  </div>
+                  {profile.description && (
+                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)', maxWidth: 80, textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {profile.description}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </Card>
+          </>
+        );
+      })()}
+
     </div>
   );
 }
