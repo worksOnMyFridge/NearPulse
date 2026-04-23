@@ -111,7 +111,7 @@ def fetch_all_nfts_paged(account_id, page=1, per_page=24):
             f"{NEARBLOCKS_API}/account/{account_id}/inventory/nfts",
             params={"page": page, "per_page": per_page},
             headers=_nb_headers(),
-            timeout=API_TIMEOUT,
+            timeout=15,
         )
         if r.status_code != 200:
             return {"tokens": [], "hasMore": False, "total": 0, "error": f"HTTP {r.status_code}"}
@@ -137,6 +137,9 @@ def fetch_all_nfts_paged(account_id, page=1, per_page=24):
         result = {"tokens": tokens, "page": page, "perPage": per_page, "total": total, "hasMore": len(raw_tokens) == per_page}
         _set_cache(key, result, NFT_CACHE_TTL)
         return result
+    except http_requests.exceptions.Timeout:
+        print(f"[fetch_all_nfts_paged] Timeout for {account_id} p{page}")
+        return {"tokens": [], "hasMore": False, "total": 0, "error": "timeout"}
     except Exception as e:
         print(f"[fetch_all_nfts_paged] Error: {e}")
         return {"tokens": [], "hasMore": False, "total": 0, "error": str(e)}

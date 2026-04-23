@@ -75,7 +75,14 @@ export default function GalleryScreenStable() {
   async function loadTokens(p, reset = false) {
     if (p === 1) setLoading(true); else setLoadingMore(true);
     try {
-      const r = await fetch(`${API_BASE}/api/nft-tokens/${displayAddress}?page=${p}&per_page=${PER_PAGE}`);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15000);
+      let r;
+      try {
+        r = await fetch(`${API_BASE}/api/nft-tokens/${displayAddress}?page=${p}&per_page=${PER_PAGE}`, { signal: controller.signal });
+      } finally {
+        clearTimeout(timer);
+      }
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = await r.json();
       if (reset || p === 1) setTokens(data.tokens || []);
@@ -83,7 +90,11 @@ export default function GalleryScreenStable() {
       setTotal(data.total || 0);
       setHasMore(data.hasMore || false);
       setPage(p);
-    } catch (e) { setError(e.message); }
+    } catch (e) {
+      setError(e.name === 'AbortError'
+        ? 'Загрузка NFT занимает много времени. Попробуйте позже.'
+        : e.message);
+    }
     finally { setLoading(false); setLoadingMore(false); }
   }
 

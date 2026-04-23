@@ -1260,6 +1260,51 @@ def api_portfolio_history(account_id):
     except Exception as e:
         print(f"[portfolio_history] Error: {e}")
         return jsonify({"account": account_id, "period": period, "history": [], "error": str(e)}), 500
+# ─── Market endpoints (DexScreener proxy) ─────────────────────────────────
+@app.route("/api/market/near")
+def api_market_near():
+    cache_key = "market_near"
+    c = cached(cache_key)
+    if c:
+        return jsonify(c)
+    try:
+        r = http_requests.get(
+            "https://api.dexscreener.com/latest/dex/search",
+            params={"q": "near"},
+            timeout=10
+        )
+        data = r.json()
+        pairs = [p for p in (data.get("pairs") or []) if p.get("chainId") == "near"]
+        result = {"pairs": pairs}
+        set_cache(cache_key, result, 120)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e), "pairs": []}), 500
+
+
+@app.route("/api/market/new-tokens")
+def api_market_new_tokens():
+    cache_key = "market_new_tokens"
+    c = cached(cache_key)
+    if c:
+        return jsonify(c)
+    try:
+        r = http_requests.get(
+            "https://api.dexscreener.com/token-profiles/latest/v1",
+            timeout=10
+        )
+        data = r.json()
+        if isinstance(data, list):
+            near_tokens = [t for t in data if t.get("chainId") == "near"][:10]
+        else:
+            near_tokens = []
+        result = {"tokens": near_tokens}
+        set_cache(cache_key, result, 300)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e), "tokens": []}), 500
+
+
 # ─── Main ──────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8080))

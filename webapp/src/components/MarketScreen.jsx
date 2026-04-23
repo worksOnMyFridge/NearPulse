@@ -5,9 +5,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 
+const API_BASE        = import.meta.env.VITE_API_URL || 'https://nearpulse.onrender.com';
 const BASE_URL        = 'https://api.dexscreener.com/tokens/v1/near';
-const SEARCH_URL      = 'https://api.dexscreener.com/latest/dex/search?q=near';
-const PROFILES_URL    = 'https://api.dexscreener.com/token-profiles/latest/v1';
+const SEARCH_URL      = `${API_BASE}/api/market/near`;
+const PROFILES_URL    = `${API_BASE}/api/market/new-tokens`;
 const REFRESH_MS      = 60_000;
 const MIN_VOL         = 1000;
 
@@ -250,9 +251,9 @@ export default function MarketScreen() {
       setNearPair(near || null);
       setTokens(rest.filter(Boolean));
 
-      // ── Market data from search ───────────────────────────────────────────
+      // ── Market data from search (proxied through our API) ────────────────
       const allPairs = (searchRes.pairs || []).filter(
-        p => p.chainId === 'near' && p.priceUsd && (p.volume?.h24 || 0) > MIN_VOL
+        p => p.priceUsd && (p.volume?.h24 || 0) > MIN_VOL
       );
       const deduped = dedupBySymbol(allPairs);
 
@@ -270,11 +271,8 @@ export default function MarketScreen() {
         : null
       );
 
-      // ── New listings ──────────────────────────────────────────────────────
-      const profiles = Array.isArray(profilesRes) ? profilesRes : [];
-      const nearNew  = profiles
-        .filter(p => p.chainId === 'near')
-        .slice(0, 5);
+      // ── New listings (proxied through our API, already filtered to near) ──
+      const nearNew = (profilesRes.tokens || []).slice(0, 5);
       setNewListings(nearNew);
 
       setLastUpdated(new Date());
